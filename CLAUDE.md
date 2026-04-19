@@ -6,6 +6,7 @@
 npm run build          # tsc → dist/
 npm run start          # HTTP server (port 3001)
 npm run dev            # HTTP server via tsx (auto-fetches AI_GATEWAY_API_KEY from 1Password)
+npm run repl           # Interactive terminal session (same flags as dev)
 ```
 
 ### CLI Flags
@@ -25,8 +26,9 @@ npm run lint           # ESLint (src/ + tests/)
 ## Testing
 
 ```bash
-npm test               # All tests
+npm test               # All tests (unit only)
 npm run test:unit      # Unit tests only
+npm run test:integration  # Integration tests (hits real AI Gateway, needs 1Password)
 ```
 
 Tests use `node:test` + `node:assert` (zero test dependencies).

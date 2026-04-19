@@ -1,10 +1,7 @@
-export interface Message {
-  role: "user" | "assistant" | "system";
-  content: string;
-}
+import type { ModelMessage } from "ai";
 
 export class ConversationHistory {
-  private messages: Message[] = [];
+  private messages: ModelMessage[] = [];
 
   constructor(private maxMessages: number) {}
 
@@ -13,12 +10,12 @@ export class ConversationHistory {
     this.trim();
   }
 
-  addAssistant(content: string): void {
-    this.messages.push({ role: "assistant", content });
+  addResponseMessages(messages: ModelMessage[]): void {
+    this.messages.push(...messages);
     this.trim();
   }
 
-  getMessages(): Message[] {
+  getMessages(): ModelMessage[] {
     return [...this.messages];
   }
 
