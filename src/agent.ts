@@ -1,4 +1,4 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, stepCountIs, type LanguageModel } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 import type { ToolSet, ModelMessage } from "ai";
 import { McpManager } from "./mcp-manager.js";
@@ -19,9 +19,11 @@ export class Agent {
   private mcpManager = new McpManager();
   private conversation: ConversationHistory;
   private systemPrompt = "";
+  private modelOverride?: LanguageModel;
 
-  constructor(private config: AgentConfig) {
+  constructor(private config: AgentConfig, modelOverride?: LanguageModel) {
     this.conversation = new ConversationHistory(config.maxHistoryMessages);
+    this.modelOverride = modelOverride;
   }
 
   async start(): Promise<void> {
@@ -59,7 +61,7 @@ export class Agent {
     };
 
     return streamText({
-      model: gateway(this.config.llmModel),
+      model: this.modelOverride ?? gateway(this.config.llmModel),
       system: this.systemPrompt,
       messages: this.conversation.getMessages(),
       tools,
