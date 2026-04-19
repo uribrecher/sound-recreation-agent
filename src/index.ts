@@ -41,13 +41,22 @@ async function main(): Promise<void> {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
 
       try {
-        const stream = agent.chat(message);
-        let fullText = "";
-        for await (const chunk of stream) {
-          fullText += chunk;
-          res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+        const result = agent.chat(message);
+        const events: import("./agent.js").StreamEvent[] = [];
+        let currentText = "";
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta") {
+            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+            currentText += part.text;
+          } else if (part.type === "tool-call") {
+            if (currentText) { events.push({ type: "text", text: currentText }); currentText = ""; }
+            events.push({ type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, args: part.input });
+          } else if (part.type === "tool-result") {
+            events.push({ type: "tool-result", toolCallId: part.toolCallId, toolName: part.toolName, output: part.output });
+          }
         }
-        agent.addAssistantResponse(fullText);
+        if (currentText) { events.push({ type: "text", text: currentText }); }
+        agent.addResponseFromEvents(events);
       } catch (e) {
         res.write(`data: ${JSON.stringify({ error: String(e) })}\n\n`);
       }
