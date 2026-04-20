@@ -35,7 +35,7 @@ digraph recreate_sound {
     "Create todo list per part" [shape=box];
     "Pick one part to focus on" [shape=box];
     "Step 3: Note-Level Extraction" [shape=box, style=bold];
-    "Step 4: Identify Synthesis Type" [shape=box];
+    "Step 4: Identify Sound Engine Category" [shape=box];
     "Step 4.5: Choose Target Device" [shape=box, style=bold];
     "Trained model available?" [shape=diamond];
     "Step 5a: Inverse Synth (ML)" [shape=box, style=bold];
@@ -53,8 +53,8 @@ digraph recreate_sound {
     "Multiple keyboard parts?" -> "Pick one part to focus on" [label="no"];
     "Create todo list per part" -> "Pick one part to focus on";
     "Pick one part to focus on" -> "Step 3: Note-Level Extraction";
-    "Step 3: Note-Level Extraction" -> "Step 4: Identify Synthesis Type";
-    "Step 4: Identify Synthesis Type" -> "Step 4.5: Choose Target Device";
+    "Step 3: Note-Level Extraction" -> "Step 4: Identify Sound Engine Category";
+    "Step 4: Identify Sound Engine Category" -> "Step 4.5: Choose Target Device";
     "Step 4.5: Choose Target Device" -> "Trained model available?";
     "Trained model available?" -> "Step 5a: Inverse Synth (ML)" [label="yes"];
     "Trained model available?" -> "Step 5b: Research + Analyze (fallback)" [label="no"];
@@ -104,7 +104,7 @@ Extract clean, individual notes from the polyphonic keyboard stem. This produces
 
 ### 3a. Polyphonic transcription
 
-Use **Spotify Basic Pitch** (open source, MIT license) to transcribe the keyboard stem into MIDI note data (pitch, onset, offset, velocity). This gives a "score" of what's being played — note events, not synthesis parameters.
+Use **Spotify Basic Pitch** (open source, Apache-2.0 license) to transcribe the keyboard stem into MIDI note data (pitch, onset, offset, velocity). This gives a "score" of what's being played — note events, not synthesis parameters.
 
 ```
 note_transcribe(audio_path=other.wav)  → transcription.mid + note_events.json
@@ -195,9 +195,9 @@ These instruments produce sound through physical mechanisms (hammers, tines, ree
 |----------|--------------------------|--------------------------|-------------------|
 | **Acoustic piano** | Felt hammers strike metal strings; sound amplified by wooden resonance box + soundboard | Rich harmonic series, velocity-dependent timbre, sympathetic string resonance, damper pedal sustain | Grand piano, upright piano |
 | **Harpsichord** | Strings plucked (not struck) by quills/plectra; no velocity control | Bright, plucky attack; consistent volume regardless of key velocity; distinctive release sound | Harpsichord, virginal |
-| **Clavinet** | Rubber-tipped hammers strike strings; **piezo electric pickups** per string group | Funky, percussive; pickup placement affects tone (like electric guitar); benefits from wah/phaser effects | Hohner Clavinet D6 |
-| **Fender Rhodes (electric piano)** | Metal **tines** struck by hammers vibrate near metal **tonebars**; **piezo electric pickup** per tine | Bell-like clean tone, bark when driven hard; velocity-sensitive; characteristic "bell" in upper register | Rhodes Mark I/II/V |
-| **Wurlitzer** | Metal **reeds** struck by hammers; **piezo electric pickup** per reed | Reedy, nasal tone; more aggressive/gritty than Rhodes; overdrives naturally at high velocity | Wurlitzer 200A |
+| **Clavinet** | Rubber-tipped hammers strike strings; **magnetic pickups** per string group | Funky, percussive; pickup placement affects tone (like electric guitar); benefits from wah/phaser effects | Hohner Clavinet D6 |
+| **Fender Rhodes (electric piano)** | Metal **tines** struck by hammers vibrate near metal **tonebars**; **electromagnetic pickup** per tine | Bell-like clean tone, bark when driven hard; velocity-sensitive; characteristic "bell" in upper register | Rhodes Mark I/II/V |
+| **Wurlitzer** | Metal **reeds** struck by hammers; **electrostatic pickup** per reed | Reedy, nasal tone; more aggressive/gritty than Rhodes; overdrives naturally at high velocity | Wurlitzer 200A |
 
 **Reproduction strategy for acoustic/electro-mechanical sounds:**
 1. Call `list_synth_engines` to find devices with a dedicated acoustic/piano engine (e.g., Nord Piano engine, Roland RD Piano engine)
@@ -217,7 +217,7 @@ Search for interviews, studio session notes, gear lists for the song/album. For 
 
 ### 4c. Query device engines
 
-Call `list_synth_engines` on connected devices to see what engines are available. This helps match the identified sound category to a specific device engine.
+First call `is_connected` to determine which devices are connected and get their device indices. Then call `list_synth_engines` for those connected devices to see what engines are available. This helps match the identified sound category to a specific device engine.
 
 **After identifying the category**, the next step depends on the sound type:
 - **Synthesized sounds** (subtractive, FM, wavetable): call `list_models` to check for trained inverse models → proceed to Step 5a
@@ -296,7 +296,7 @@ This is the agent's responsibility. The vector labels (e.g., `osc1_shape`, `lp_f
 
 ## Step 5b: Research + Spectral Analysis (Fallback)
 
-When no trained model is available for the synthesis type, fall back to manual analysis.
+When no trained model is available for the synthesis type, or when the sound falls into a non-inverse-synth category (acoustic, electro-mechanical, sample-based, or a synthesis/device mismatch), fall back to manual analysis.
 
 ### Online research
 1. Search for the specific song's keyboard setup (interviews, forums, production breakdowns)
@@ -374,7 +374,7 @@ If no audio capture is available, ask the user to play and describe what sounds 
 | Treating all "electric pianos" as synthesizers | Rhodes and Wurlitzer are electro-mechanical (tines/reeds + pickups), not synthesized — they need a dedicated piano/EP engine with samples |
 | Ignoring effects processing | The inverse model predicts dry params — add effects separately to match the wet stem |
 | Skipping validation | Always offer A/B comparison when audio capture is available |
-| Trusting a low-confidence prediction blindly | If confidence < 0.6, try `top_k=3` and compare, or fall back to Step 4b |
+| Trusting a low-confidence prediction blindly | If confidence < 0.6, try `top_k=3` and compare, or fall back to Step 5b |
 | Sending to wrong device | Always pass the `device` index from Step 4.5 to every MCP tool call |
 | Skipping device selection | When multiple devices are connected, always run Step 4.5 — don't default to device 1 |
 | Ignoring engine category mismatch | A subtractive synth cannot reproduce an organ sound well — call `list_synth_engines` and pick the right device/engine. inverse_synth type must match target device engine category. |
