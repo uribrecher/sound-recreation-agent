@@ -34,12 +34,13 @@ digraph recreate_sound {
     "Multiple keyboard parts?" [shape=diamond];
     "Create todo list per part" [shape=box];
     "Pick one part to focus on" [shape=box];
-    "Step 3: Identify Synthesis Type" [shape=box];
-    "Step 3.5: Choose Target Device" [shape=box, style=bold];
+    "Step 3: Note-Level Extraction" [shape=box, style=bold];
+    "Step 4: Identify Sound Engine Category" [shape=box];
+    "Step 4.5: Choose Target Device" [shape=box, style=bold];
     "Trained model available?" [shape=diamond];
-    "Step 4a: Inverse Synth (ML)" [shape=box, style=bold];
-    "Step 4b: Research + Analyze (fallback)" [shape=box];
-    "Step 5: Apply & Validate" [shape=box];
+    "Step 5a: Inverse Synth (ML)" [shape=box, style=bold];
+    "Step 5b: Research + Analyze (fallback)" [shape=box];
+    "Step 6: Apply & Validate" [shape=box];
     "Good enough?" [shape=diamond];
     "More parts remaining?" [shape=diamond];
     "Next part" [shape=box];
@@ -51,16 +52,17 @@ digraph recreate_sound {
     "Multiple keyboard parts?" -> "Create todo list per part" [label="yes"];
     "Multiple keyboard parts?" -> "Pick one part to focus on" [label="no"];
     "Create todo list per part" -> "Pick one part to focus on";
-    "Pick one part to focus on" -> "Step 3: Identify Synthesis Type";
-    "Step 3: Identify Synthesis Type" -> "Step 3.5: Choose Target Device";
-    "Step 3.5: Choose Target Device" -> "Trained model available?";
-    "Trained model available?" -> "Step 4a: Inverse Synth (ML)" [label="yes"];
-    "Trained model available?" -> "Step 4b: Research + Analyze (fallback)" [label="no"];
-    "Step 4a: Inverse Synth (ML)" -> "Step 5: Apply & Validate";
-    "Step 4b: Research + Analyze (fallback)" -> "Step 5: Apply & Validate";
-    "Step 5: Apply & Validate" -> "Good enough?";
+    "Pick one part to focus on" -> "Step 3: Note-Level Extraction";
+    "Step 3: Note-Level Extraction" -> "Step 4: Identify Sound Engine Category";
+    "Step 4: Identify Sound Engine Category" -> "Step 4.5: Choose Target Device";
+    "Step 4.5: Choose Target Device" -> "Trained model available?";
+    "Trained model available?" -> "Step 5a: Inverse Synth (ML)" [label="yes"];
+    "Trained model available?" -> "Step 5b: Research + Analyze (fallback)" [label="no"];
+    "Step 5a: Inverse Synth (ML)" -> "Step 6: Apply & Validate";
+    "Step 5b: Research + Analyze (fallback)" -> "Step 6: Apply & Validate";
+    "Step 6: Apply & Validate" -> "Good enough?";
     "Good enough?" -> "More parts remaining?" [label="yes"];
-    "Good enough?" -> "Step 5: Apply & Validate" [label="no — refine"];
+    "Good enough?" -> "Step 6: Apply & Validate" [label="no — refine"];
     "More parts remaining?" -> "Next part" [label="yes"];
     "More parts remaining?" -> "Done" [label="no"];
     "Next part" -> "Pick one part to focus on";
@@ -94,56 +96,159 @@ spectrum_analyze(audio_path=other.wav, start_time=0, duration=10)
 
 - Use `spectrum_analyze` at different timestamps to identify distinct keyboard sections
 - If multiple keyboard parts exist, create a todo list and let the user choose which to tackle first
-- Each part gets its own full analysis (steps 3-5)
+- Each part gets its own full analysis (steps 3-6)
 
-## Step 3: Identify the Synthesis Type
+## Step 3: Note-Level Extraction (Score-Informed Source Separation)
 
-Determine which synthesis engine produced the sound. This selects which inverse model to use.
+Extract clean, individual notes from the polyphonic keyboard stem. This produces single-note audio samples that are far more reliable input for synthesis detection (Step 4) and inverse synthesis (Step 5a) than a raw polyphonic stem.
 
-**Two approaches in parallel:**
+### 3a. Polyphonic transcription
 
-### 3a. Spectral fingerprinting
+Use **Spotify Basic Pitch** (open source, Apache-2.0 license) to transcribe the keyboard stem into MIDI note data (pitch, onset, offset, velocity). This gives a "score" of what's being played — note events, not synthesis parameters.
 
-Use `spectrum_analyze` on the keyboard stem. The harmonic profile reveals the synthesis type:
+```
+note_transcribe(audio_path=other.wav)  → transcription.mid + note_events.json
+```
 
-| Spectral signature | Likely synthesis | Inverse model |
-|-------------------|-----------------|---------------|
-| Strong odd harmonics, spectral rolloff | Subtractive (pulse/square osc + LP filter) | `subtractive_*` |
-| Complex inharmonic partials, metallic | FM synthesis | `fm_*` |
-| Clean integer harmonics, drawbar-like | Additive / organ | `organ_*` |
-| Realistic acoustic partials, noise transients | Sample-based | `sample_*` |
-| Evolving spectrum over time | Wavetable | `wavetable_*` |
+**Returns:** MIDI file + structured note event list with timestamps, pitches, velocities, and a polyphony profile (how many notes overlap at each point in time).
 
-### 3b. Online research
+### 3b. Polyphony analysis & note selection
 
-Search for interviews, studio session notes, gear lists for the song/album. For famous songs the gear is often well-documented. This confirms or narrows the synthesis type.
+Not all notes are equally useful. Analyze the transcription to find the cleanest candidates:
 
-**After identifying the type**, call `list_models` to check which trained inverse models are available, and pick the best match.
+| Polyphony level | Quality | Strategy |
+|----------------|---------|----------|
+| **Monophonic** (1 note, no overlap) | Best — cleanest signal | Skip frequency masking, just slice by time boundaries |
+| **Low polyphony** (2-3 notes) | Good — masking works well | Use nussl time-frequency masking |
+| **Heavy polyphony** (4+ simultaneous notes) | Poor — masking artifacts likely | Avoid these windows; only use as last resort |
 
-**Critical constraint:** Inverse models are trained per **synthesis type**, not per device. Only use `inverse_synth` when the target device's synthesis engine matches the model's type. Sample-based keyboards (e.g., Nord piano/sample engine) are NOT valid targets for `inverse_synth` — always use the fallback research workflow (Step 4b) for sample-based sounds.
+**Selection criteria** (pick notes that are):
+- In low-polyphony or monophonic windows
+- Sustained long enough to capture the full ADSR envelope (prefer > 0.5s)
+- Isolated in time (minimal overlap with adjacent notes)
+- Spread across the pitch range (capture timbre at different registers)
 
-## Step 3.5: Choose Target Device
+Aim for 3-5 clean candidate notes at different pitches.
+
+### 3c. Score-informed source separation
+
+For notes in polyphonic sections, use **nussl** time-frequency masking to isolate individual notes from the audio. The MIDI transcription from Step 3a guides the mask — nussl knows exactly which time-frequency bins belong to each note.
+
+```
+note_isolate(
+  audio_path=other.wav,
+  transcription_path=transcription.mid,
+  note_indices=[3, 7, 12, 18, 25]    # indices of selected candidate notes
+)  → isolated_notes/note_003.wav, note_007.wav, ...
+```
+
+For monophonic windows: simple time-slice extraction (no masking needed).
+For polyphonic windows: nussl applies a soft mask in the STFT domain, guided by the pitch and timing from the transcription.
+
+### 3d. Effects & distortion triage
+
+Before feeding isolated notes into inverse synthesis, assess each note's quality:
+
+| Condition | Detection method | Action |
+|-----------|-----------------|--------|
+| **Clean** (minimal effects) | Low spectral spread, clear harmonics | Use directly — best candidates |
+| **Reverb/delay present** | Energy persists after note-off, comb-filter signatures | Attempt removal via spectral gating; usable if attack transient is clean |
+| **Chorus/modulation** | Spectral smearing, beating patterns | Note the modulation rate; still usable for fundamental timbre |
+| **Heavy distortion** | Dense inharmonic partials, compressed dynamics, intermodulation products | **Flag as unusable** — distortion is destructive and non-invertible; skip these notes |
+| **Masking artifacts** | Phase cancellation, hollow sound | Discard — try a different note from a cleaner window |
+
+**Output:** A ranked list of clean isolated notes, each tagged with a quality score and any detected effects. Only the top candidates proceed to Step 4.
+
+## Step 4: Identify the Sound Engine Category
+
+Determine which sound engine category produced the sound. This selects the reproduction strategy: inverse synthesis (for synthesized sounds) or sample/preset matching (for acoustic/electro-mechanical sounds). Use the clean isolated notes from Step 3 as input. Also call `list_synth_engines` to see what engines are available on connected devices.
+
+### Sound Engine Taxonomy
+
+Keyboard sounds fall into distinct categories based on how the sound is generated. Each category requires a different reproduction strategy.
+
+#### Synthesized sounds (inverse synthesis candidates)
+
+These are generated mathematically — a trained inverse model can predict the parameter vector.
+
+| Category | Spectral signature | How it works | Example hardware | Inverse model |
+|----------|-------------------|--------------|-----------------|---------------|
+| **Subtractive** | Strong odd harmonics, spectral rolloff from LP filter | Oscillators (saw/pulse/square) → filter → amplifier → envelopes | Prophet-6, Moog, JUNO-106/60 | `subtractive_*` |
+| **FM (Frequency Modulation)** | Complex inharmonic partials, metallic/glassy/bell-like | Operators modulate each other's frequency at audio rates | Yamaha DX7, FM8 | `fm_*` |
+| **Wavetable** | Evolving spectrum over time, digital morphing textures | Cycles through wavetable positions, often with modulation | PPG Wave, Waldorf | `wavetable_*` |
+
+#### Organ sounds (dedicated organ engines)
+
+Organs are a special category — they originated as acoustic instruments (church pipe organs: huge arrays of metal pipes + wind blower, essentially a polyphonic flute orchestra), but the most famous "keyboard organ" is the **Hammond B3**, which is electronic (spinning tone wheels generating sine waves at harmonic intervals). Modern keyboards reproduce organ sounds via **additive synthesis with drawbars** — each drawbar controls the volume of one harmonic.
+
+| Category | Spectral signature | How it works | Example hardware | Inverse model |
+|----------|-------------------|--------------|-----------------|---------------|
+| **Organ (drawbar/additive)** | Clean integer harmonics at drawbar intervals (8', 4', 2-2/3', etc.), percussion click, key click | Drawbars set harmonic levels; rotary speaker (Leslie) adds modulation | Hammond B3, Nord Organ engine, Vox Continental | `organ_*` |
+
+Organ sounds **can** be approached with inverse synthesis because the parameter space (drawbar levels + percussion + vibrato/chorus + rotary speed) is well-defined and compact. However, the **rotary speaker effect** (Leslie) is critical to the final sound and must be handled separately as an effect.
+
+#### Acoustic & electro-mechanical keyboard instruments (sample-based — NOT inverse synth candidates)
+
+These instruments produce sound through physical mechanisms (hammers, tines, reeds, strings). Modern keyboards reproduce them via **sample playback engines** — recordings of the real instrument at multiple velocities and pitches, with additional modeling of resonance, sympathetic vibration, and mechanical noise. These are NOT synthesizable — use preset/sample matching (Step 5b fallback).
+
+| Category | Sound generation mechanism | Key sonic characteristics | Example instruments |
+|----------|--------------------------|--------------------------|-------------------|
+| **Acoustic piano** | Felt hammers strike metal strings; sound amplified by wooden resonance box + soundboard | Rich harmonic series, velocity-dependent timbre, sympathetic string resonance, damper pedal sustain | Grand piano, upright piano |
+| **Harpsichord** | Strings plucked (not struck) by quills/plectra; no velocity control | Bright, plucky attack; consistent volume regardless of key velocity; distinctive release sound | Harpsichord, virginal |
+| **Clavinet** | Rubber-tipped hammers strike strings; **magnetic pickups** per string group | Funky, percussive; pickup placement affects tone (like electric guitar); benefits from wah/phaser effects | Hohner Clavinet D6 |
+| **Fender Rhodes (electric piano)** | Metal **tines** struck by hammers vibrate near metal **tonebars**; **electromagnetic pickup** per tine | Bell-like clean tone, bark when driven hard; velocity-sensitive; characteristic "bell" in upper register | Rhodes Mark I/II/V |
+| **Wurlitzer** | Metal **reeds** struck by hammers; **electrostatic pickup** per reed | Reedy, nasal tone; more aggressive/gritty than Rhodes; overdrives naturally at high velocity | Wurlitzer 200A |
+
+**Reproduction strategy for acoustic/electro-mechanical sounds:**
+1. Call `list_synth_engines` to find devices with a dedicated acoustic/piano engine (e.g., Nord Piano engine, Roland RD Piano engine)
+2. Search the device's **program/sample library** for matching sounds (`list_programs`)
+3. Fine-tune via the engine's effect chain (EQ, compression, amp simulation, tremolo, chorus)
+4. For electro-mechanical instruments (Rhodes, Wurlitzer, Clavinet): the **pickup/amp modeling** and **effects chain** are often more important than the base sample — dial these in carefully
+
+**Why inverse synthesis doesn't work here:** These instruments don't have a "parameter vector" that maps to a synthesis algorithm. The sound comes from recorded samples — the controllable parameters are sample selection, velocity curve, EQ, and effects. A trained ML model has nothing meaningful to predict.
+
+### 4a. Spectral fingerprinting
+
+Use `spectrum_analyze` on the clean isolated notes from Step 3. The harmonic profile reveals the sound engine category per the taxonomy above.
+
+### 4b. Online research
+
+Search for interviews, studio session notes, gear lists for the song/album. For famous songs the gear is often well-documented. This confirms or narrows the sound engine category.
+
+### 4c. Query device engines
+
+First call `is_connected` to determine which devices are connected and get their device indices. Then call `list_synth_engines` for those connected devices to see what engines are available. This helps match the identified sound category to a specific device engine.
+
+**After identifying the category**, the next step depends on the sound type:
+- **Synthesized sounds** (subtractive, FM, wavetable): call `list_models` to check for trained inverse models → proceed to Step 5a
+- **Organ sounds**: call `list_models` for organ inverse models → proceed to Step 5a (or Step 5b if no model)
+- **Acoustic/electro-mechanical sounds**: skip inverse synthesis entirely → proceed to Step 5b (research + preset matching)
+
+**Critical constraint:** Inverse models are trained per **synthesis type**, not per device. Only use `inverse_synth` when the target device's synthesis engine matches the model's type. Acoustic/electro-mechanical sounds (piano, Rhodes, Wurlitzer, Clavinet, harpsichord) are NOT valid targets for `inverse_synth` — always use the preset matching workflow (Step 5b).
+
+## Step 4.5: Choose Target Device
 
 Before designing or predicting parameters, determine which connected device is the best fit for the identified sound. This step is critical when the MCP is connected to multiple devices.
 
 ### Device selection process
 
 1. **Query the device pool** — call `is_connected` to list all connected devices with their indices.
-2. **Get each device's capabilities** — call `get_system_prompt(device=N)` and `list_parameters(device=N)` for each connected device. The system prompt describes the device's synthesis engine, signal path, and sound design capabilities.
-3. **Score devices against the sound requirements** using the criteria below.
-4. **Select the best match** and note its device index for Steps 4 and 5.
+2. **Get each device's engines** — call `list_synth_engines(device=N)` for each connected device. This returns the synthesis engines available on the device (e.g., "Organ Engine", "Piano Engine", "Subtractive Synth"), their categories, and capabilities.
+3. **Get detailed capabilities** — call `get_system_prompt(device=N)` and `list_parameters(device=N)` for promising devices.
+4. **Score devices against the sound requirements** using the criteria below.
+5. **Select the best match** and note its device index for Steps 5 and 6.
 
 ### Scoring criteria
 
-Evaluate each device against the requirements identified in Step 3. The criteria are ordered by importance:
+Evaluate each device against the requirements identified in Step 4. The criteria are ordered by importance:
 
 | Criterion | What to check | Example |
 |-----------|--------------|---------|
-| **Synthesis type match** | Does the device support the required synthesis method? An additive sound needs a device with additive synthesis (e.g., organ drawbars). A subtractive sound needs oscillators + filters. | Sound needs drawbar organ → Nord (has organ engine) scores higher than Prophet-6 (subtractive only) |
+| **Engine category match** | Does the device have an engine in the right category? Use `list_synth_engines` output. Acoustic piano needs a piano/sample engine, not a subtractive synth. Organ needs a drawbar engine. | Rhodes sound → device with piano/EP engine (Nord Piano, Roland RD Piano) scores higher than Prophet-6 |
 | **Polyphony** | Is the sound polyphonic (chords, pads) or monophonic (bass, lead)? A monophonic device cannot reproduce a polyphonic part. | Polyphonic pad → skip monophonic devices |
 | **Parameter coverage** | Does the device have the controls needed to shape this sound? Check for required oscillator types, filter types, envelope stages, modulation routing. | Sound needs PWM → device must have pulse width parameter |
-| **Timbral range** | Can the device reach the target timbre? A device with only saw/square oscillators cannot produce FM bell tones. | Metallic bell → FM-capable device scores higher |
-| **Effects availability** | Does the device have the effects heard in the sound (rotary speaker, chorus, specific reverb types)? | Leslie sound → device with rotary speaker effect scores higher |
+| **Sample/preset library** | For acoustic/electro-mechanical sounds: does the device have relevant samples or factory presets? Check `list_programs`. | Need a Wurlitzer → device with Wurlitzer samples scores higher |
+| **Effects availability** | Does the device have the effects heard in the sound (rotary speaker, chorus, amp simulation, tremolo)? | Leslie sound → device with rotary speaker effect scores higher; Clavinet → device with wah/phaser |
 
 ### When only one device is connected
 
@@ -160,23 +265,25 @@ If no connected device can reasonably produce the sound, tell the user:
 
 When recreating a song with multiple keyboard parts (from Step 2), different parts may be assigned to different devices. Track which device is assigned to which part in the todo list. This is the primary benefit of multi-device support for sound recreation.
 
-## Step 4a: Inverse Synth — ML-Based Parameter Prediction (Primary)
+## Step 5a: Inverse Synth — ML-Based Parameter Prediction (Primary)
 
-When a trained model exists for the identified synthesis type **and** the target device matches that synthesis type, use it to predict a raw parameter vector from the audio.
+When a trained model exists for the identified synthesis type **and** the target device matches that synthesis type, use it to predict a raw parameter vector from the audio. Feed the clean isolated notes from Step 3, not the raw polyphonic stem.
 
 ```
 inverse_synth(
-  audio_path=other.wav,       # or a trimmed section with the target sound
-  synth_type="subtractive",   # matches the synthesis type, NOT a specific device
-  top_k=3                     # get top 3 predictions for comparison
+  audio_path=isolated_notes/note_007.wav,  # clean isolated note from Step 3
+  synth_type="subtractive",                # matches the synthesis type, NOT a specific device
+  top_k=3                                  # get top 3 predictions for comparison
 )
 ```
+
+**Feed isolated notes, not the raw stem.** Run `inverse_synth` on multiple clean notes from Step 3 and compare predictions — consistent results across notes increase confidence. Disagreements may indicate the notes have different levels of effects contamination.
 
 **Returns** a ranked list of raw parameter vectors (0.0-1.0 normalized) with confidence scores and vector labels. The model's timbre embedding is trained to see through effects, polyphony, and noise — it predicts the **dry patch parameters** regardless of what's in the mix.
 
 **Choosing the right model:**
 - Match by **synthesis type**: subtractive sound → `subtractive` model, FM sound → `fm` model, organ sound → `organ` model
-- The target device (from Step 3.5) must be of the same synthesis type. If not, use Step 4b (fallback).
+- The target device (from Step 4.5) must be of the same synthesis type. If not, use Step 5b (fallback).
 - **Never use `inverse_synth` for sample-based keyboards** (e.g., Nord piano/sample engine) — these don't have a synthesizable parameter space
 - If `top_k > 1`, briefly describe the differences between predictions to the user
 
@@ -187,9 +294,9 @@ This is the agent's responsibility. The vector labels (e.g., `osc1_shape`, `lp_f
 3. Scale from 0.0-1.0 to the device's parameter range
 4. Skip vector entries that have no equivalent on the target device, and note the gap to the user
 
-## Step 4b: Research + Spectral Analysis (Fallback)
+## Step 5b: Research + Spectral Analysis (Fallback)
 
-When no trained model is available for the synthesis type, fall back to manual analysis.
+When no trained model is available for the synthesis type, or when the sound falls into a non-inverse-synth category (acoustic, electro-mechanical, sample-based, or a synthesis/device mismatch), fall back to manual analysis.
 
 ### Online research
 1. Search for the specific song's keyboard setup (interviews, forums, production breakdowns)
@@ -212,11 +319,11 @@ Stems are almost always **wet** (effects from mixing). When setting parameters:
 - The `synth_hints` from `spectrum_analyze` already account for common effects signatures
 - Set the dry patch first, then add effects to taste
 
-## Step 5: Apply to Hardware & Validate
+## Step 6: Apply to Hardware & Validate
 
 ### Apply the parameters
 
-Use keyboards-mcp to apply the predicted (or manually designed) parameters to the target device chosen in Step 3.5:
+Use keyboards-mcp to apply the predicted (or manually designed) parameters to the target device chosen in Step 4.5:
 
 ```
 # Always check available params first
@@ -263,11 +370,15 @@ If no audio capture is available, ask the user to play and describe what sounds 
 | Guessing from genre stereotypes | Research the specific song — don't assume "80s pop = DX7" |
 | Trying to recreate all parts at once | One sound at a time, create todos for multiple parts |
 | Using wrong inverse model | Check `list_models` and match to **synthesis type** — one model per type, not per device |
-| Using inverse_synth for sample-based sounds | Nord piano/sample engine is a sampler, not a synth — use the research fallback (Step 4b) |
+| Using inverse_synth for acoustic/electro-mechanical sounds | Piano, Rhodes, Wurlitzer, Clavinet, harpsichord are sample-based — use preset matching (Step 5b), not inverse synthesis |
+| Treating all "electric pianos" as synthesizers | Rhodes and Wurlitzer are electro-mechanical (tines/reeds + pickups), not synthesized — they need a dedicated piano/EP engine with samples |
 | Ignoring effects processing | The inverse model predicts dry params — add effects separately to match the wet stem |
 | Skipping validation | Always offer A/B comparison when audio capture is available |
-| Trusting a low-confidence prediction blindly | If confidence < 0.6, try `top_k=3` and compare, or fall back to Step 4b |
-| Sending to wrong device | Always pass the `device` index from Step 3.5 to every MCP tool call |
-| Skipping device selection | When multiple devices are connected, always run Step 3.5 — don't default to device 1 |
-| Ignoring synthesis type mismatch | A subtractive synth cannot reproduce an additive organ sound well — pick the right device. inverse_synth type must match target device type. |
+| Trusting a low-confidence prediction blindly | If confidence < 0.6, try `top_k=3` and compare, or fall back to Step 5b |
+| Sending to wrong device | Always pass the `device` index from Step 4.5 to every MCP tool call |
+| Skipping device selection | When multiple devices are connected, always run Step 4.5 — don't default to device 1 |
+| Ignoring engine category mismatch | A subtractive synth cannot reproduce an organ sound well — call `list_synth_engines` and pick the right device/engine. inverse_synth type must match target device engine category. |
 | Assigning polyphonic part to mono device | Check polyphony requirements against device capabilities before committing |
+| Feeding raw polyphonic stem to inverse_synth | Extract clean isolated notes (Step 3) first — polyphonic mixes confuse the model |
+| Using heavily distorted notes for analysis | Distortion is non-invertible — flag and skip distorted notes, use cleaner ones |
+| Using notes from heavy polyphony windows | Prefer monophonic or low-polyphony windows — masking artifacts degrade quality |
