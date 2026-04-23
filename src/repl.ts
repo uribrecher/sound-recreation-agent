@@ -1,17 +1,12 @@
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 
 const DEFAULT_SERVER_URL = "http://localhost:3001";
 
 interface UIMessage {
+  id: string;
   role: "user" | "assistant";
-  content: string;
-  toolInvocations?: Array<{
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    state: string;
-    result?: unknown;
-  }>;
+  parts: Array<{ type: "text"; text: string }>;
 }
 
 function formatToolInput(toolName: string, input: unknown): string {
@@ -112,11 +107,11 @@ async function main(): Promise<void> {
         return;
       }
 
-      messages.push({ role: "user", content: trimmed });
+      messages.push({ id: randomUUID(), role: "user", parts: [{ type: "text", text: trimmed }] });
 
       try {
         const assistantText = await streamChat(serverUrl, messages);
-        messages.push({ role: "assistant", content: assistantText });
+        messages.push({ id: randomUUID(), role: "assistant", parts: [{ type: "text", text: assistantText }] });
         console.log("\n");
       } catch (e) {
         console.error("Error:", e);

@@ -34,28 +34,38 @@ async function main(): Promise<void> {
     }
 
     if (req.method === "POST" && req.url === "/chat") {
-      const body = await readBody(req);
-      const { messages } = JSON.parse(body);
+      try {
+        const body = await readBody(req);
+        const { messages } = JSON.parse(body);
 
-      const response = await createAgentUIStreamResponse({
-        agent,
-        uiMessages: messages,
-      });
+        const response = await createAgentUIStreamResponse({
+          agent,
+          uiMessages: messages,
+        });
 
-      res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
-      const reader = response.body?.getReader();
-      if (reader) {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(value);
+        res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+        const reader = response.body?.getReader();
+        if (reader) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(value);
+            }
+          } finally {
+            reader.releaseLock();
           }
-        } finally {
-          reader.releaseLock();
+        }
+        res.end();
+      } catch (e) {
+        console.error("Chat error:", e);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: String(e) }));
+        } else {
+          res.end();
         }
       }
-      res.end();
       return;
     }
 
