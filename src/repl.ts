@@ -53,6 +53,11 @@ async function streamChat(serverUrl: string, messages: UIMessage[]): Promise<str
     for (const line of lines) {
       if (!line.trim()) continue;
 
+      // Debug: log raw lines to discover the actual stream protocol format
+      if (process.env.DEBUG_STREAM) {
+        process.stderr.write(`[stream] ${JSON.stringify(line)}\n`);
+      }
+
       if (line.startsWith("0:")) {
         const text = JSON.parse(line.slice(2));
         process.stdout.write(text);
