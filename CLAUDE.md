@@ -62,7 +62,7 @@ Server is stateless — conversation history lives in the client.
 ### Key modules
 
 - **config.ts** — CLI flags, env vars, defaults (precedence: CLI > env > defaults)
-- **agent.ts** — Factory: creates ToolLoopAgent with MCP tools + web search
+- **agent.ts** — Factory: creates ToolLoopAgent with MCP tools (web search currently disabled — see TODO)
 - **mcp-manager.ts** — Long-lived MCP client lifecycle (connect, cache tools, shutdown)
 - **mcp-tool-adapter.ts** — MCP tools → AI SDK tool format (uses `dynamicTool` for runtime-typed MCP tools)
 - **system-prompt.ts** — Assembles system prompt from skill + inventory + model context

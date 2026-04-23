@@ -163,7 +163,9 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
 
   after(async () => {
     await ctx.mcpManager.shutdown();
-    server.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    });
   });
 
   // --- Basic SSE format ---

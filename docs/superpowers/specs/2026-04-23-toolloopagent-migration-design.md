@@ -52,7 +52,7 @@ export function createAgent(config: AgentConfig, mcpManager: McpManager): ToolLo
     instructions: buildSystemPrompt({ inventory: null, modelPrompt: null }),
     tools: {
       ...mcpManager.getMergedTools(),
-      web_search: gateway.tools.perplexitySearch(),
+      // TODO: web search — provider-executed tools don't loop with ToolLoopAgent
     },
     stopWhen: stepCountIs(10),
   });

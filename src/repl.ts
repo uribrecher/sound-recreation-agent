@@ -41,46 +41,50 @@ async function streamChat(serverUrl: string, messages: UIMessage[]): Promise<str
   let buffer = "";
   let assistantText = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      if (!line.trim()) continue;
+      for (const line of lines) {
+        if (!line.trim()) continue;
 
-      // SSE format: "data: {json}" or "data: [DONE]"
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6);
-      if (payload === "[DONE]") continue;
+        // SSE format: "data: {json}" or "data: [DONE]"
+        if (!line.startsWith("data: ")) continue;
+        const payload = line.slice(6);
+        if (payload === "[DONE]") continue;
 
-      let event: { type: string; delta?: string; id?: string; toolName?: string; input?: unknown; result?: unknown };
-      try {
-        event = JSON.parse(payload);
-      } catch {
-        continue;
-      }
+        let event: { type: string; delta?: string; id?: string; toolName?: string; input?: unknown; result?: unknown };
+        try {
+          event = JSON.parse(payload);
+        } catch {
+          continue;
+        }
 
-      switch (event.type) {
-        case "text-delta":
-          process.stdout.write(event.delta ?? "");
-          assistantText += event.delta ?? "";
-          break;
-        case "tool-input-start":
-          process.stdout.write(`\n\x1b[36m[tool: ${event.toolName}]\x1b[0m `);
-          break;
-        case "tool-input-available":
-          process.stdout.write(formatToolInput(event.toolName ?? "", event.input));
-          break;
-        case "tool-output-available":
-          process.stdout.write(`\x1b[32m done\x1b[0m\n`);
-          break;
+        switch (event.type) {
+          case "text-delta":
+            process.stdout.write(event.delta ?? "");
+            assistantText += event.delta ?? "";
+            break;
+          case "tool-input-start":
+            process.stdout.write(`\n\x1b[36m[tool: ${event.toolName}]\x1b[0m `);
+            break;
+          case "tool-input-available":
+            process.stdout.write(formatToolInput(event.toolName ?? "", event.input));
+            break;
+          case "tool-output-available":
+            process.stdout.write(`\x1b[32m done\x1b[0m\n`);
+            break;
+        }
       }
     }
+  } finally {
+    reader.releaseLock();
   }
 
   return assistantText;

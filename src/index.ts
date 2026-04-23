@@ -35,8 +35,21 @@ async function main(): Promise<void> {
 
     if (req.method === "POST" && req.url === "/chat") {
       try {
-        const body = await readBody(req);
-        const { messages } = JSON.parse(body);
+        const body = await readBody(req, 1024 * 1024); // 1MB limit
+        let parsed: { messages?: unknown };
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid JSON" }));
+          return;
+        }
+        const { messages } = parsed;
+        if (!Array.isArray(messages) || messages.length === 0) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "messages must be a non-empty array" }));
+          return;
+        }
 
         const response = await createAgentUIStreamResponse({
           agent,
@@ -85,10 +98,19 @@ async function main(): Promise<void> {
   });
 }
 
-function readBody(req: import("node:http").IncomingMessage): Promise<string> {
+function readBody(req: import("node:http").IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (chunk) => (data += chunk));
+    let bytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      data += chunk;
+    });
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });

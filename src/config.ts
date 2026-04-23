@@ -3,7 +3,6 @@ export interface AgentConfig {
   audioMcpPath: string | undefined;
   port: number;
   llmModel: string;
-  gatewayApiKey: string | undefined;
 }
 
 interface CliFlags {
@@ -28,6 +27,5 @@ export function resolveConfig({ cliFlags, env }: ResolveInput): AgentConfig {
     audioMcpPath: cliFlags.audioMcpPath ?? env.AUDIO_ANALYSIS_MCP_PATH ?? undefined,
     port: cliFlags.port ?? (env.AGENT_PORT ? parseInt(env.AGENT_PORT, 10) : DEFAULTS.port),
     llmModel: env.LLM_MODEL ?? DEFAULTS.llmModel,
-    gatewayApiKey: env.AI_GATEWAY_API_KEY,
   };
 }

@@ -8,7 +8,6 @@ const baseConfig: AgentConfig = {
   audioMcpPath: undefined,
   port: 3001,
   llmModel: "anthropic/claude-sonnet-4-20250514",
-  gatewayApiKey: undefined,
 };
 
 describe("createAgent", () => {
