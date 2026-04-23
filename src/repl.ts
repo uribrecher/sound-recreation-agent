@@ -53,25 +53,30 @@ async function streamChat(serverUrl: string, messages: UIMessage[]): Promise<str
     for (const line of lines) {
       if (!line.trim()) continue;
 
-      // Debug: log raw lines to discover the actual stream protocol format
-      if (process.env.DEBUG_STREAM) {
-        process.stderr.write(`[stream] ${JSON.stringify(line)}\n`);
+      // SSE format: "data: {json}" or "data: [DONE]"
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6);
+      if (payload === "[DONE]") continue;
+
+      let event: { type: string; delta?: string; id?: string; toolName?: string; input?: unknown; result?: unknown };
+      try {
+        event = JSON.parse(payload);
+      } catch {
+        continue;
       }
 
-      if (line.startsWith("0:")) {
-        const text = JSON.parse(line.slice(2));
-        process.stdout.write(text);
-        assistantText += text;
-      } else if (line.startsWith("9:")) {
-        const data = JSON.parse(line.slice(2));
-        process.stdout.write(`\n\x1b[36m[tool: ${data.toolName}]\x1b[0m `);
-      } else if (line.startsWith("a:")) {
-        // Tool call delta — skip
-      } else if (line.startsWith("b:")) {
-        process.stdout.write(`\x1b[32mdone\x1b[0m\n`);
-      } else if (line.startsWith("c:")) {
-        const data = JSON.parse(line.slice(2));
-        process.stdout.write(formatToolInput(data.toolName, data.args));
+      switch (event.type) {
+        case "text-delta":
+          process.stdout.write(event.delta ?? "");
+          assistantText += event.delta ?? "";
+          break;
+        case "tool-call":
+          process.stdout.write(`\n\x1b[36m[tool: ${event.toolName}]\x1b[0m `);
+          process.stdout.write(formatToolInput(event.toolName ?? "", event.input));
+          break;
+        case "tool-result":
+          process.stdout.write(`\x1b[32mdone\x1b[0m\n`);
+          break;
       }
     }
   }
