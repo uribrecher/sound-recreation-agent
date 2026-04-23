@@ -43,6 +43,10 @@ export async function createAgent(config: AgentConfig): Promise<AgentContext> {
     instructions: systemPrompt,
     tools,
     stopWhen: stepCountIs(10),
+    onStepFinish: async ({ stepNumber, finishReason, toolCalls }) => {
+      const toolSummary = toolCalls?.map((tc: any) => tc.toolName).join(", ") || "none";
+      console.log(`[step ${stepNumber}] finish=${finishReason} tools=[${toolSummary}]`);
+    },
   });
 
   console.log(`Agent started. Connected MCP servers: ${mcpManager.getConnectedServerIds().join(", ") || "none"}`);
