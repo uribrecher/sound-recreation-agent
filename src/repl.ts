@@ -1,19 +1,17 @@
 import { createInterface } from "node:readline";
-import { resolveConfig } from "./config.js";
-import { Agent, type StreamEvent } from "./agent.js";
 
-function parseCliFlags(argv: string[]): Record<string, string | number> {
-  const flags: Record<string, string | number> = {};
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === "--keyboards-mcp" && argv[i + 1]) {
-      flags.keyboardsMcpPath = argv[++i];
-    } else if (argv[i] === "--audio-mcp" && argv[i + 1]) {
-      flags.audioMcpPath = argv[++i];
-    } else if (argv[i] === "--port" && argv[i + 1]) {
-      flags.port = parseInt(argv[++i], 10);
-    }
-  }
-  return flags;
+const DEFAULT_SERVER_URL = "http://localhost:3001";
+
+interface UIMessage {
+  role: "user" | "assistant";
+  content: string;
+  toolInvocations?: Array<{
+    toolCallId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    state: string;
+    result?: unknown;
+  }>;
 }
 
 function formatToolInput(toolName: string, input: unknown): string {
@@ -30,20 +28,68 @@ function formatToolInput(toolName: string, input: unknown): string {
   return `${keys.length} params`;
 }
 
-async function main(): Promise<void> {
-  const cliFlags = parseCliFlags(process.argv);
-  const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
-  const agent = new Agent(config);
+async function streamChat(serverUrl: string, messages: UIMessage[]): Promise<string> {
+  const response = await fetch(`${serverUrl}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
 
-  await agent.start();
+  if (!response.ok) {
+    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let assistantText = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      if (line.startsWith("0:")) {
+        const text = JSON.parse(line.slice(2));
+        process.stdout.write(text);
+        assistantText += text;
+      } else if (line.startsWith("9:")) {
+        const data = JSON.parse(line.slice(2));
+        process.stdout.write(`\n\x1b[36m[tool: ${data.toolName}]\x1b[0m `);
+      } else if (line.startsWith("a:")) {
+        // Tool call delta — skip
+      } else if (line.startsWith("b:")) {
+        process.stdout.write(`\x1b[32mdone\x1b[0m\n`);
+      } else if (line.startsWith("c:")) {
+        const data = JSON.parse(line.slice(2));
+        process.stdout.write(formatToolInput(data.toolName, data.args));
+      }
+    }
+  }
+
+  return assistantText;
+}
+
+async function main(): Promise<void> {
+  const serverUrl = process.env.AGENT_SERVER_URL ?? DEFAULT_SERVER_URL;
+  const messages: UIMessage[] = [];
 
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
-  console.log("Type a message to chat. Commands: /reset, /quit");
-  console.log();
+  console.log(`Connecting to ${serverUrl}`);
+  console.log("Type a message to chat. Commands: /reset, /quit\n");
 
   const prompt = (): void => {
     rl.question("> ", async (input) => {
@@ -55,80 +101,26 @@ async function main(): Promise<void> {
 
       if (trimmed === "/quit") {
         console.log("Bye!");
-        await agent.shutdown();
         rl.close();
         process.exit(0);
       }
 
       if (trimmed === "/reset") {
-        agent.resetConversation();
+        messages.length = 0;
         console.log("Conversation reset.\n");
         prompt();
         return;
       }
 
+      messages.push({ role: "user", content: trimmed });
+
       try {
-        const result = agent.chat(trimmed);
-        const events: StreamEvent[] = [];
-        let inText = false;
-        let currentText = "";
-
-        for await (const part of result.fullStream) {
-          switch (part.type) {
-            case "tool-input-start":
-              if (inText) {
-                process.stdout.write("\n");
-                inText = false;
-              }
-              // Flush accumulated text as an event
-              if (currentText) {
-                events.push({ type: "text", text: currentText });
-                currentText = "";
-              }
-              process.stdout.write(`\x1b[36m[tool: ${part.toolName}]\x1b[0m `);
-              break;
-
-            case "tool-call":
-              events.push({
-                type: "tool-call",
-                toolCallId: part.toolCallId,
-                toolName: part.toolName,
-                args: part.input,
-              });
-              process.stdout.write(`${formatToolInput(part.toolName, part.input)}\n`);
-              break;
-
-            case "tool-result":
-              events.push({
-                type: "tool-result",
-                toolCallId: part.toolCallId,
-                toolName: part.toolName,
-                output: part.output,
-              });
-              process.stdout.write(`\x1b[32m  done\x1b[0m\n`);
-              break;
-
-            case "tool-error":
-              process.stdout.write(`\x1b[31m[error] ${part.error}\x1b[0m\n\n`);
-              break;
-
-            case "text-delta":
-              process.stdout.write(part.text);
-              currentText += part.text;
-              inText = true;
-              break;
-          }
-        }
-
-        // Flush final text
-        if (currentText) {
-          events.push({ type: "text", text: currentText });
-        }
-
-        agent.addResponseFromEvents(events);
+        const assistantText = await streamChat(serverUrl, messages);
+        messages.push({ role: "assistant", content: assistantText });
         console.log("\n");
       } catch (e) {
         console.error("Error:", e);
+        messages.pop();
         console.log();
       }
 
@@ -137,13 +129,6 @@ async function main(): Promise<void> {
   };
 
   prompt();
-
-  process.on("SIGINT", async () => {
-    console.log("\nShutting down...");
-    await agent.shutdown();
-    rl.close();
-    process.exit(0);
-  });
 }
 
 main().catch(console.error);
