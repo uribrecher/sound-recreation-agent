@@ -70,12 +70,14 @@ async function streamChat(serverUrl: string, messages: UIMessage[]): Promise<str
           process.stdout.write(event.delta ?? "");
           assistantText += event.delta ?? "";
           break;
-        case "tool-call":
+        case "tool-input-start":
           process.stdout.write(`\n\x1b[36m[tool: ${event.toolName}]\x1b[0m `);
+          break;
+        case "tool-input-available":
           process.stdout.write(formatToolInput(event.toolName ?? "", event.input));
           break;
-        case "tool-result":
-          process.stdout.write(`\x1b[32mdone\x1b[0m\n`);
+        case "tool-output-available":
+          process.stdout.write(`\x1b[32m done\x1b[0m\n`);
           break;
       }
     }
