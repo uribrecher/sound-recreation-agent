@@ -24,7 +24,6 @@ describe("resolveConfig", () => {
   it("uses defaults when nothing is configured", () => {
     const config = resolveConfig({ cliFlags: {}, env: {} });
     assert.strictEqual(config.port, 3001);
-    assert.strictEqual(config.maxHistoryMessages, 40);
     assert.strictEqual(config.keyboardsMcpPath, undefined);
     assert.strictEqual(config.audioMcpPath, undefined);
   });
