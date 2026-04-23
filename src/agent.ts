@@ -35,7 +35,7 @@ export async function createAgent(config: AgentConfig): Promise<AgentContext> {
 
   const tools: ToolSet = {
     ...mcpManager.getMergedTools(),
-    web_search: gateway.tools.perplexitySearch(),
+    // TODO: add web search tool (perplexitySearch provider tool doesn't work with ToolLoopAgent loop)
   };
 
   const agent = new ToolLoopAgent({
