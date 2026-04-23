@@ -1,9 +1,16 @@
 import { createServer } from "node:http";
+import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
-import { Agent } from "./agent.js";
+import { createAgent } from "./agent.js";
 
-function parseCliFlags(argv: string[]): Record<string, string | number> {
-  const flags: Record<string, string | number> = {};
+interface CliFlags {
+  keyboardsMcpPath?: string;
+  audioMcpPath?: string;
+  port?: number;
+}
+
+function parseCliFlags(argv: string[]): CliFlags {
+  const flags: CliFlags = {};
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === "--keyboards-mcp" && argv[i + 1]) {
       flags.keyboardsMcpPath = argv[++i];
@@ -16,12 +23,16 @@ function parseCliFlags(argv: string[]): Record<string, string | number> {
   return flags;
 }
 
+function isValidUIMessage(msg: unknown): boolean {
+  if (typeof msg !== "object" || msg === null) return false;
+  const m = msg as Record<string, unknown>;
+  return typeof m.id === "string" && typeof m.role === "string" && Array.isArray(m.parts);
+}
+
 async function main(): Promise<void> {
   const cliFlags = parseCliFlags(process.argv);
   const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
-  const agent = new Agent(config);
-
-  await agent.start();
+  const { agent, mcpManager } = await createAgent(config);
 
   const server = createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -35,41 +46,57 @@ async function main(): Promise<void> {
     }
 
     if (req.method === "POST" && req.url === "/chat") {
-      const body = await readBody(req);
-      const { message } = JSON.parse(body);
-
-      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-
       try {
-        const result = agent.chat(message);
-        const events: import("./agent.js").StreamEvent[] = [];
-        let currentText = "";
-        for await (const part of result.fullStream) {
-          if (part.type === "text-delta") {
-            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-            currentText += part.text;
-          } else if (part.type === "tool-call") {
-            if (currentText) { events.push({ type: "text", text: currentText }); currentText = ""; }
-            events.push({ type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, args: part.input });
-          } else if (part.type === "tool-result") {
-            events.push({ type: "tool-result", toolCallId: part.toolCallId, toolName: part.toolName, output: part.output });
+        const body = await readBody(req, 1024 * 1024); // 1MB limit
+        let parsed: { messages?: unknown };
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid JSON" }));
+          return;
+        }
+        const { messages } = parsed;
+        if (!Array.isArray(messages) || messages.length === 0) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "messages must be a non-empty array" }));
+          return;
+        }
+        if (!messages.every(isValidUIMessage)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Each message must have id (string), role (string), and parts (array)" }));
+          return;
+        }
+
+        const response = await createAgentUIStreamResponse({
+          agent,
+          uiMessages: messages,
+        });
+
+        res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+        const reader = response.body?.getReader();
+        if (reader) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(value);
+            }
+          } finally {
+            reader.releaseLock();
           }
         }
-        if (currentText) { events.push({ type: "text", text: currentText }); }
-        agent.addResponseFromEvents(events);
+        res.end();
       } catch (e) {
-        res.write(`data: ${JSON.stringify({ error: String(e) })}\n\n`);
+        console.error("Chat error:", e);
+        if (!res.headersSent) {
+          const status = e instanceof Error && e.message === "Request body too large" ? 413 : 500;
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: String(e) }));
+        } else {
+          res.end();
+        }
       }
-
-      res.write("data: [DONE]\n\n");
-      res.end();
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/reset") {
-      agent.resetConversation();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
       return;
     }
 
@@ -83,16 +110,25 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", async () => {
     console.log("\nShutting down...");
-    await agent.shutdown();
+    await mcpManager.shutdown();
     server.close();
     process.exit(0);
   });
 }
 
-function readBody(req: import("node:http").IncomingMessage): Promise<string> {
+function readBody(req: import("node:http").IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (chunk) => (data += chunk));
+    let bytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      data += chunk;
+    });
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });
