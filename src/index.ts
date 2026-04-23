@@ -37,7 +37,7 @@ async function main(): Promise<void> {
       const body = await readBody(req);
       const { messages } = JSON.parse(body);
 
-      const response = createAgentUIStreamResponse({
+      const response = await createAgentUIStreamResponse({
         agent,
         uiMessages: messages,
       });
