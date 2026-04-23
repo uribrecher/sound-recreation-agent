@@ -395,7 +395,7 @@ rm src/conversation.ts
 
 - [ ] **Step 2: Update config.ts**
 
-Remove `maxHistoryMessages` (no longer needed — conversation is client-side). Add `serverUrl` for REPL mode.
+Remove `maxHistoryMessages` and `gatewayApiKey` (no longer needed — conversation is client-side, gateway reads API key from `process.env` directly). REPL reads server URL from `AGENT_SERVER_URL` env var directly.
 
 ```typescript
 export interface AgentConfig {
@@ -403,7 +403,6 @@ export interface AgentConfig {
   audioMcpPath: string | undefined;
   port: number;
   llmModel: string;
-  gatewayApiKey: string | undefined;
 }
 
 interface CliFlags {
@@ -428,7 +427,6 @@ export function resolveConfig({ cliFlags, env }: ResolveInput): AgentConfig {
     audioMcpPath: cliFlags.audioMcpPath ?? env.AUDIO_ANALYSIS_MCP_PATH ?? undefined,
     port: cliFlags.port ?? (env.AGENT_PORT ? parseInt(env.AGENT_PORT, 10) : DEFAULTS.port),
     llmModel: env.LLM_MODEL ?? DEFAULTS.llmModel,
-    gatewayApiKey: env.AI_GATEWAY_API_KEY,
   };
 }
 ```

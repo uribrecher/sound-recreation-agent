@@ -3,8 +3,14 @@ import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
 import { createAgent } from "./agent.js";
 
-function parseCliFlags(argv: string[]): Record<string, string | number> {
-  const flags: Record<string, string | number> = {};
+interface CliFlags {
+  keyboardsMcpPath?: string;
+  audioMcpPath?: string;
+  port?: number;
+}
+
+function parseCliFlags(argv: string[]): CliFlags {
+  const flags: CliFlags = {};
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === "--keyboards-mcp" && argv[i + 1]) {
       flags.keyboardsMcpPath = argv[++i];
@@ -15,6 +21,12 @@ function parseCliFlags(argv: string[]): Record<string, string | number> {
     }
   }
   return flags;
+}
+
+function isValidUIMessage(msg: unknown): boolean {
+  if (typeof msg !== "object" || msg === null) return false;
+  const m = msg as Record<string, unknown>;
+  return typeof m.id === "string" && typeof m.role === "string" && Array.isArray(m.parts);
 }
 
 async function main(): Promise<void> {
@@ -50,6 +62,11 @@ async function main(): Promise<void> {
           res.end(JSON.stringify({ error: "messages must be a non-empty array" }));
           return;
         }
+        if (!messages.every(isValidUIMessage)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Each message must have id (string), role (string), and parts (array)" }));
+          return;
+        }
 
         const response = await createAgentUIStreamResponse({
           agent,
@@ -73,7 +90,8 @@ async function main(): Promise<void> {
       } catch (e) {
         console.error("Chat error:", e);
         if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "application/json" });
+          const status = e instanceof Error && e.message === "Request body too large" ? 413 : 500;
+          res.writeHead(status, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: String(e) }));
         } else {
           res.end();

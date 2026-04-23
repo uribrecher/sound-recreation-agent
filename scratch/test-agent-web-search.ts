@@ -2,7 +2,7 @@
  * Minimal test: does ToolLoopAgent handle perplexitySearch without hanging?
  * Tests agent.stream() directly (no HTTP server).
  *
- * Run: AI_GATEWAY_API_KEY=$(op read 'op://Private/vercel ai api-gateway key/password' --account my.1password.com) npx tsx scratch/test-agent-web-search.ts
+ * Run: AI_GATEWAY_API_KEY=<your-key> npx tsx scratch/test-agent-web-search.ts
  */
 import { ToolLoopAgent, stepCountIs } from "ai";
 import { gateway } from "@ai-sdk/gateway";
@@ -33,9 +33,9 @@ for await (const chunk of result.fullStream) {
   } else if (chunk.type === "tool-call") {
     console.error(`\n[tool-call] ${chunk.toolName}`);
   } else if (chunk.type === "tool-result") {
-    console.error(`[tool-result] ${chunk.toolName}: ${JSON.stringify(chunk.result).slice(0, 200)}`);
+    console.error(`[tool-result] ${chunk.toolName}: ${JSON.stringify(chunk.output ?? chunk).slice(0, 200)}`);
   } else {
-    console.error(`[${chunk.type}]`);
+    console.error(`[${chunk.type}] ${JSON.stringify(chunk).slice(0, 150)}`);
   }
 }
 

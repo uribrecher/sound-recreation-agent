@@ -112,13 +112,13 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
   let port: number;
 
   before(async () => {
+    const audioMcpPath = process.env.AUDIO_ANALYSIS_MCP_PATH ?? "../audio-analysis-mcp/.venv/bin/python";
     const config = resolveConfig({
       cliFlags: {
-        audioMcpPath: "../audio-analysis-mcp/.venv/bin/python",
+        audioMcpPath,
       },
       env: process.env as Record<string, string>,
     });
-    port = 10000 + Math.floor(Math.random() * 50000);
     ctx = await createAgent(config);
 
     server = createServer(async (req, res) => {
@@ -158,7 +158,9 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
       res.end("Not found");
     });
 
-    await new Promise<void>((resolve) => server.listen(port, resolve));
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const addr = server.address();
+    port = typeof addr === "object" && addr ? addr.port : 0;
   });
 
   after(async () => {

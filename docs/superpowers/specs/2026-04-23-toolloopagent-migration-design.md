@@ -140,7 +140,7 @@ Conversation history moves from server (`ConversationHistory` class) to client (
 - **src/mcp-manager.ts** — MCP server lifecycle management. No changes needed.
 - **src/mcp-tool-adapter.ts** — MCP-to-AI-SDK tool conversion. No changes needed.
 - **src/system-prompt.ts** — System prompt assembly. No changes needed.
-- **src/config.ts** — Minor update: REPL may only need a `serverUrl` config option instead of MCP paths.
+- **src/config.ts** — Minor update: removed `maxHistoryMessages` and `gatewayApiKey`. REPL reads server URL from `AGENT_SERVER_URL` env var directly (not via config).
 
 ## File Change Summary
 

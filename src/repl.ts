@@ -125,6 +125,11 @@ async function main(): Promise<void> {
 
       messages.push({ id: randomUUID(), role: "user", parts: [{ type: "text", text: trimmed }] });
 
+      const historyBytes = JSON.stringify(messages).length;
+      if (historyBytes > 800_000) {
+        console.log(`\x1b[33m[warning] Conversation history is ${Math.round(historyBytes / 1024)}KB — approaching server limit. Use /reset to start fresh.\x1b[0m`);
+      }
+
       try {
         const assistantText = await streamChat(serverUrl, messages);
         messages.push({ id: randomUUID(), role: "assistant", parts: [{ type: "text", text: assistantText }] });
