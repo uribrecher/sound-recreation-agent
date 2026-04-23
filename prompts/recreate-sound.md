@@ -74,7 +74,7 @@ digraph recreate_sound {
 Use audio-analysis-mcp to get the audio and separate it into stems.
 
 ```
-1. fetch_audio(source="<YouTube URL or local path>")    → full_mix.wav
+1. import_audio(file_path="<local path>")                → full_mix.wav
 2. stem_separate(audio_path=full_mix.wav)                → vocals.wav, drums.wav, bass.wav, other.wav
 ```
 
@@ -82,7 +82,24 @@ The **"other"** stem contains keyboards, synths, pads, and any non-vocal/drum/ba
 
 **If the user provides a YouTube URL or file path**, use it directly. Otherwise, search for the song on YouTube and confirm the URL with the user before fetching.
 
-**Stem separation takes 1-5 minutes** — inform the user it's running.
+### Stem separation presets
+
+The MCP `stem_separate` tool defaults to the **fast** preset — quick but with more bleed between stems. This is fine for initial exploration.
+
+For higher quality separation, ask the user to run the CLI in a separate terminal:
+
+```bash
+cd audio-analysis-mcp
+uv run python -m audio_analysis_mcp.cli.stem_separate <audio_path> --preset medium
+```
+
+| Preset | Speed | Quality | When to use |
+|--------|-------|---------|-------------|
+| `fast` | ~1 min | More bleed | Initial exploration, quick checks (MCP default) |
+| `medium` | ~5 min | Balanced | General use, good enough for most analysis |
+| `accurate` | ~40 min | Best | Final separation when bleed is causing analysis issues |
+
+The CLI shows a live tqdm progress bar. The results are cached, so re-running with the same file and preset is instant.
 
 ## Step 2: Focus on Keyboard Parts
 
