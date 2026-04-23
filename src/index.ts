@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
+import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
-import { Agent } from "./agent.js";
+import { createAgent } from "./agent.js";
 
 function parseCliFlags(argv: string[]): Record<string, string | number> {
   const flags: Record<string, string | number> = {};
@@ -19,9 +20,7 @@ function parseCliFlags(argv: string[]): Record<string, string | number> {
 async function main(): Promise<void> {
   const cliFlags = parseCliFlags(process.argv);
   const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
-  const agent = new Agent(config);
-
-  await agent.start();
+  const { agent, mcpManager } = await createAgent(config);
 
   const server = createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -36,40 +35,27 @@ async function main(): Promise<void> {
 
     if (req.method === "POST" && req.url === "/chat") {
       const body = await readBody(req);
-      const { message } = JSON.parse(body);
+      const { messages } = JSON.parse(body);
 
-      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+      const response = createAgentUIStreamResponse({
+        agent,
+        uiMessages: messages,
+      });
 
-      try {
-        const result = agent.chat(message);
-        const events: import("./agent.js").StreamEvent[] = [];
-        let currentText = "";
-        for await (const part of result.fullStream) {
-          if (part.type === "text-delta") {
-            res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
-            currentText += part.text;
-          } else if (part.type === "tool-call") {
-            if (currentText) { events.push({ type: "text", text: currentText }); currentText = ""; }
-            events.push({ type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, args: part.input });
-          } else if (part.type === "tool-result") {
-            events.push({ type: "tool-result", toolCallId: part.toolCallId, toolName: part.toolName, output: part.output });
+      res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+      const reader = response.body?.getReader();
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(value);
           }
+        } finally {
+          reader.releaseLock();
         }
-        if (currentText) { events.push({ type: "text", text: currentText }); }
-        agent.addResponseFromEvents(events);
-      } catch (e) {
-        res.write(`data: ${JSON.stringify({ error: String(e) })}\n\n`);
       }
-
-      res.write("data: [DONE]\n\n");
       res.end();
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/reset") {
-      agent.resetConversation();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
       return;
     }
 
@@ -83,7 +69,7 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", async () => {
     console.log("\nShutting down...");
-    await agent.shutdown();
+    await mcpManager.shutdown();
     server.close();
     process.exit(0);
   });
