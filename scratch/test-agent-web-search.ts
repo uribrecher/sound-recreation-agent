@@ -29,7 +29,7 @@ const result = await agent.stream({
 // Use fullStream to see ALL events including tool calls
 for await (const chunk of result.fullStream) {
   if (chunk.type === "text-delta") {
-    process.stdout.write(chunk.textDelta);
+    process.stdout.write(chunk.text);
   } else if (chunk.type === "tool-call") {
     console.error(`\n[tool-call] ${chunk.toolName}`);
   } else if (chunk.type === "tool-result") {
