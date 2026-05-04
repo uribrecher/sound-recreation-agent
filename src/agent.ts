@@ -3,6 +3,7 @@ import { gateway } from "@ai-sdk/gateway";
 import type { ToolSet } from "ai";
 import { McpManager } from "./mcp-manager.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { createWebSearchTool } from "./web-search.js";
 import type { AgentConfig } from "./config.js";
 
 export interface AgentContext {
@@ -35,7 +36,7 @@ export async function createAgent(config: AgentConfig): Promise<AgentContext> {
 
   const tools: ToolSet = {
     ...mcpManager.getMergedTools(),
-    // TODO: add web search tool (perplexitySearch provider tool doesn't work with ToolLoopAgent loop)
+    ...createWebSearchTool(config.tavilyApiKey),
   };
 
   const agent = new ToolLoopAgent({
@@ -49,7 +50,9 @@ export async function createAgent(config: AgentConfig): Promise<AgentContext> {
     } : undefined,
   });
 
-  console.log(`Agent started. Connected MCP servers: ${mcpManager.getConnectedServerIds().join(", ") || "none"}`);
+  const webSearchStatus = config.tavilyApiKey ? "enabled" : "disabled";
+  const mcpList = mcpManager.getConnectedServerIds().join(", ") || "none";
+  console.log(`Agent started. Connected MCP servers: ${mcpList}. Web search: ${webSearchStatus}.`);
 
   return { agent, mcpManager };
 }
