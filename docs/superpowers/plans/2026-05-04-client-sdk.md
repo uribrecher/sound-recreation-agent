@@ -108,11 +108,14 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["src/**/*", "tests/**/*"]
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist", "dist-tests"]
 }
 ```
 
 The test config adds `@types/node` because the tests use `node:test` and `node:assert`. Production build excludes them.
+
+Note: the `"exclude": ["node_modules", "dist", "dist-tests"]` line is required. TypeScript's `extends` does NOT merge `exclude` arrays — without this override, the test config inherits `tsconfig.json`'s `"exclude": ["node_modules", "dist", "tests"]` (note `tests`!) and then `include: ["tests/**/*"]` is silently overridden. ESLint's type-aware rules then fail to find the test files.
 
 - [ ] **Step 4: Create `client-sdk/.gitignore`**
 

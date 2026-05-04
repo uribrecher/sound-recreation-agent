@@ -7,6 +7,8 @@
   "scripts": {
     "build": "npm run build:sdk && tsc",
     "build:sdk": "npm --prefix client-sdk run build",
+    "predev": "npm run build:sdk",
+    "prerepl": "npm run build:sdk",
     "start": "node dist/index.js",
     "dev": "AI_GATEWAY_API_KEY=$(op read 'op://Private/vercel ai api-gateway key/password' --account my.1password.com) TAVILY_API_KEY=$(op read 'op://Private/tavily api key free tier/credential' --account my.1password.com) tsx src/index.ts",
     "dev:full": "AI_GATEWAY_API_KEY=$(op read 'op://Private/vercel ai api-gateway key/password' --account my.1password.com) TAVILY_API_KEY=$(op read 'op://Private/tavily api key free tier/credential' --account my.1password.com) tsx src/index.ts -- --keyboards-mcp ../keyboards-mcp/dist/index.js --audio-mcp ../audio-analysis-mcp/.venv/bin/python",
