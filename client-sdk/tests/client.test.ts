@@ -169,4 +169,43 @@ describe("AgentClient", () => {
     assert.strictEqual(body.messages[0].role, "user");
     assert.strictEqual(body.messages[0].parts[0].text, "hello");
   });
+
+  it("exposes the in-flight user message in `messages` before the iterator is consumed", async () => {
+    nextResponse = () => sseResponse([`data: {"type":"text-delta","delta":"x"}\n`]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+
+    const iter = client.send("hi");
+    // Iterator returned, but not consumed yet — user message must already be visible.
+    assert.strictEqual(client.messages.length, 1);
+    assert.strictEqual(client.messages[0]?.role, "user");
+    assert.strictEqual(client.messages[0]?.parts[0]?.text, "hi");
+
+    // Drain so we don't leave a dangling generator.
+    for await (const _ev of iter) {
+      // consume
+    }
+    assert.strictEqual(client.messages.length, 2);
+  });
+
+  it("includes prior assistant messages in the next turn's POST body", async () => {
+    nextResponse = () => sseResponse([`data: {"type":"text-delta","delta":"reply1"}\n`]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    await collect(client, "turn1");
+
+    nextResponse = () => sseResponse([`data: {"type":"text-delta","delta":"reply2"}\n`]);
+    await collect(client, "turn2");
+
+    assert.strictEqual(calls.length, 2);
+
+    const body2 = JSON.parse(calls[1]!.init!.body as string);
+    assert.strictEqual(body2.messages.length, 3);
+    assert.strictEqual(body2.messages[0].role, "user");
+    assert.strictEqual(body2.messages[0].parts[0].text, "turn1");
+    assert.strictEqual(body2.messages[1].role, "assistant");
+    assert.strictEqual(body2.messages[1].parts[0].text, "reply1");
+    assert.strictEqual(body2.messages[2].role, "user");
+    assert.strictEqual(body2.messages[2].parts[0].text, "turn2");
+
+    assert.strictEqual(client.messages.length, 4);
+  });
 });
