@@ -17,7 +17,7 @@ interface ResolveInput {
 }
 
 const DEFAULTS = {
-  port: 3001,
+  port: 2999,
   llmModel: "anthropic/claude-sonnet-4-20250514",
 } as const;
 

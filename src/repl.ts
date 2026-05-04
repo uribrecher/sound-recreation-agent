@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 
-const DEFAULT_SERVER_URL = "http://localhost:3001";
+const DEFAULT_SERVER_URL = "http://localhost:2999";
 
 interface UIMessage {
   id: string;
