@@ -24,6 +24,18 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
   sections.push("You are a sound recreation agent that helps users recreate keyboard sounds from songs.");
   sections.push("You have access to keyboard control tools and audio analysis tools via MCP.");
 
+  sections.push(
+    [
+      "## Per-Device Preflight (mandatory before set_parameters)",
+      "",
+      "Each connected keyboard ships its own usage notes — engine layout, parameter preconditions, model-specific quirks — that are NOT in this system prompt. You must load them before changing parameters on a device.",
+      "",
+      "Rule: before the FIRST `set_parameters` call against any device in this session, call `get_system_prompt(device=N)` for that device. The returned guidance overrides any generic assumptions you would make from tool descriptions alone. One fetch per device per session is enough.",
+      "",
+      "This applies even when only one device is connected. The single-device skip in the recreate-sound workflow only skips device-selection scoring — it does NOT skip this preflight.",
+    ].join("\n"),
+  );
+
   const skill = loadRecreateSoundSkill();
   sections.push("## Sound Recreation Workflow\n\n" + skill);
 
