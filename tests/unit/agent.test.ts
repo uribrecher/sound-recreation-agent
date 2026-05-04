@@ -8,6 +8,7 @@ const baseConfig: AgentConfig = {
   audioMcpPath: undefined,
   port: 2999,
   llmModel: "anthropic/claude-sonnet-4-20250514",
+  tavilyApiKey: undefined,
 };
 
 describe("createAgent", () => {
