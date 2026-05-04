@@ -4,10 +4,10 @@
 
 ```bash
 npm run build          # tsc → dist/
-npm run start          # HTTP server (port 3001)
+npm run start          # HTTP server (port 2999)
 npm run dev            # HTTP server via tsx (auto-fetches AI_GATEWAY_API_KEY from 1Password)
 npm run dev:full       # HTTP server with both MCP servers (keyboards + audio-analysis)
-npm run repl           # REPL client (connects to http://localhost:3001)
+npm run repl           # REPL client (connects to http://localhost:2999)
 ```
 
 ### CLI Flags (server)

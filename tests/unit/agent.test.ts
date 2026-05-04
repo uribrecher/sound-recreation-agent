@@ -6,7 +6,7 @@ import type { AgentConfig } from "../../src/config.js";
 const baseConfig: AgentConfig = {
   keyboardsMcpPath: undefined,
   audioMcpPath: undefined,
-  port: 3001,
+  port: 2999,
   llmModel: "anthropic/claude-sonnet-4-20250514",
 };
 
