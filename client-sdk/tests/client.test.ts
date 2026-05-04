@@ -75,23 +75,70 @@ describe("AgentClient", () => {
     assert.strictEqual(last.type === "done" ? last.assistantText : null, "hello world");
   });
 
-  it("passes tool events through with original payload", async () => {
+  it("translates wire-format tool events into the public ChatEvent shape", async () => {
+    // Real wire format from the AI SDK UI Message Stream:
+    //   - tool-input-start carries `toolCallId` + `toolName`
+    //   - tool-input-available carries `toolCallId` + `toolName` + `input`
+    //   - tool-output-available carries `toolCallId` + `output` (NO toolName)
+    // The SDK tracks toolCallId → toolName from input-start and synthesizes
+    // toolName on the output event.
     nextResponse = () => sseResponse([
-      `data: {"type":"tool-input-start","toolName":"web_search"}\n`,
-      `data: {"type":"tool-input-available","toolName":"web_search","input":{"query":"a-ha"}}\n`,
-      `data: {"type":"tool-output-available","toolName":"web_search","result":"ok"}\n`,
+      `data: {"type":"tool-input-start","toolCallId":"tc_1","toolName":"web_search"}\n`,
+      `data: {"type":"tool-input-available","toolCallId":"tc_1","toolName":"web_search","input":{"query":"a-ha"}}\n`,
+      `data: {"type":"tool-output-available","toolCallId":"tc_1","output":{"results":["ok"]}}\n`,
     ]);
     const client = new AgentClient({ serverUrl: "http://x" });
     const events = await collect(client, "search");
 
     assert.strictEqual(events[0]?.type, "tool-input-start");
+    assert.strictEqual((events[0] as { toolName: string }).toolName, "web_search");
+
     assert.strictEqual(events[1]?.type, "tool-input-available");
+    assert.strictEqual((events[1] as { toolName: string }).toolName, "web_search");
     assert.deepStrictEqual(
       (events[1] as { input: unknown }).input,
       { query: "a-ha" },
     );
+
     assert.strictEqual(events[2]?.type, "tool-output-available");
-    assert.strictEqual((events[2] as { result: unknown }).result, "ok");
+    // toolName must be SYNTHESIZED — the wire event has no toolName field.
+    assert.strictEqual((events[2] as { toolName: string }).toolName, "web_search");
+    assert.deepStrictEqual(
+      (events[2] as { output: unknown }).output,
+      { results: ["ok"] },
+    );
+  });
+
+  it("synthesizes toolName=\"\" on tool-output-available when toolCallId is unknown", async () => {
+    // Edge case: output event arrives without a preceding input-start.
+    // SDK should not crash; toolName falls back to empty string.
+    nextResponse = () => sseResponse([
+      `data: {"type":"tool-output-available","toolCallId":"tc_orphan","output":{"x":1}}\n`,
+    ]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const events = await collect(client, "x");
+
+    assert.strictEqual(events[0]?.type, "tool-output-available");
+    assert.strictEqual((events[0] as { toolName: string }).toolName, "");
+    assert.deepStrictEqual((events[0] as { output: unknown }).output, { x: 1 });
+  });
+
+  it("correlates toolCallId across multiple concurrent tool calls in one turn", async () => {
+    nextResponse = () => sseResponse([
+      `data: {"type":"tool-input-start","toolCallId":"tc_a","toolName":"web_search"}\n`,
+      `data: {"type":"tool-input-start","toolCallId":"tc_b","toolName":"audio_compare"}\n`,
+      `data: {"type":"tool-output-available","toolCallId":"tc_b","output":"audio-result"}\n`,
+      `data: {"type":"tool-output-available","toolCallId":"tc_a","output":"search-result"}\n`,
+    ]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const events = await collect(client, "x");
+
+    // Outputs arrived in opposite order from inputs; toolName must follow the id.
+    const outputs = events.filter((e): e is ChatEvent & { type: "tool-output-available" } =>
+      e.type === "tool-output-available");
+    assert.strictEqual(outputs.length, 2);
+    assert.strictEqual((outputs[0] as { toolName: string }).toolName, "audio_compare");
+    assert.strictEqual((outputs[1] as { toolName: string }).toolName, "web_search");
   });
 
   it("rolls back the user message when fetch returns non-2xx", async () => {
