@@ -42,4 +42,17 @@ describe("resolveConfig", () => {
     const config = resolveConfig({ cliFlags: {}, env: {} });
     assert.strictEqual("gatewayApiKey" in config, false);
   });
+
+  it("reads TAVILY_API_KEY from env into tavilyApiKey", () => {
+    const config = resolveConfig({
+      cliFlags: {},
+      env: { TAVILY_API_KEY: "tvly-test-key" },
+    });
+    assert.strictEqual(config.tavilyApiKey, "tvly-test-key");
+  });
+
+  it("tavilyApiKey is undefined when TAVILY_API_KEY is unset", () => {
+    const config = resolveConfig({ cliFlags: {}, env: {} });
+    assert.strictEqual(config.tavilyApiKey, undefined);
+  });
 });

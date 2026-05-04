@@ -3,6 +3,7 @@ export interface AgentConfig {
   audioMcpPath: string | undefined;
   port: number;
   llmModel: string;
+  tavilyApiKey: string | undefined;
 }
 
 interface CliFlags {
@@ -27,5 +28,6 @@ export function resolveConfig({ cliFlags, env }: ResolveInput): AgentConfig {
     audioMcpPath: cliFlags.audioMcpPath ?? env.AUDIO_ANALYSIS_MCP_PATH ?? undefined,
     port: cliFlags.port ?? (env.AGENT_PORT ? parseInt(env.AGENT_PORT, 10) : DEFAULTS.port),
     llmModel: env.LLM_MODEL ?? DEFAULTS.llmModel,
+    tavilyApiKey: env.TAVILY_API_KEY ?? undefined,
   };
 }
