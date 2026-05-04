@@ -1,0 +1,22 @@
+{
+  "name": "@sounds-and-recreation/agent-client",
+  "version": "0.1.0",
+  "description": "Browser-safe TypeScript client SDK for the sound-recreation-agent HTTP server",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/ tests/ --no-error-on-unmatched-pattern",
+    "test": "find tests -name '*.test.ts' | xargs npx tsx --test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.39.4",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.58.2"
+  }
+}
