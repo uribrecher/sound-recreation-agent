@@ -1,7 +1,17 @@
 import { createInterface } from "node:readline";
-import { AgentClient } from "@sounds-and-recreation/agent-client";
+import { AgentClient, isWebSearchResult, type WebSearchResult } from "@sounds-and-recreation/agent-client";
 
 const DEFAULT_SERVER_URL = "http://localhost:2999";
+
+function renderSources(result: WebSearchResult): void {
+  if (result.results.length === 0) return;
+  process.stdout.write(`\x1b[2mSources:\x1b[0m\n`);
+  for (const src of result.results) {
+    process.stdout.write(`  \x1b[36m• ${src.url}\x1b[0m`);
+    if (src.title) process.stdout.write(` — ${src.title}`);
+    process.stdout.write(`\n`);
+  }
+}
 
 function formatToolInput(toolName: string, input: unknown): string {
   if (input == null) return "";
@@ -31,6 +41,9 @@ async function chat(client: AgentClient, text: string): Promise<void> {
         break;
       case "tool-output-available":
         process.stdout.write(`\x1b[32m done\x1b[0m\n`);
+        if (isWebSearchResult(event.toolName, event.output)) {
+          renderSources(event.output);
+        }
         break;
       case "done":
         // assistant message already committed by the SDK
