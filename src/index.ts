@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
 import { createAgent } from "./agent.js";
@@ -29,14 +29,26 @@ function isValidUIMessage(msg: unknown): boolean {
   return typeof m.id === "string" && typeof m.role === "string" && Array.isArray(m.parts);
 }
 
-async function main(): Promise<void> {
-  const cliFlags = parseCliFlags(process.argv);
-  const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
-  const { agent, mcpManager } = await createAgent(config);
+// Use the actual type produced by createAgent rather than the param
+// type expected by createAgentUIStreamResponse — the latter has
+// looser generics that don't unify with the concrete ToolLoopAgent
+// once it's stored in a variable. `null` lets the /health unit test
+// boot the handler without instantiating a real agent.
+type AgentArg = Awaited<ReturnType<typeof createAgent>>["agent"];
 
-  const server = createServer(async (req, res) => {
+/**
+ * Build the HTTP request handler. Exported so the /health route can
+ * be exercised by unit tests against the actual production code path
+ * (the integration suite mounts its own minimal handler and only runs
+ * under `npm run test:integration`, so a regression in this file's
+ * routing wouldn't be caught by the default `npm test` / `test:ci`).
+ */
+export function createRequestHandler(
+  agent: AgentArg | null,
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  return async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
     if (req.method === "OPTIONS") {
@@ -53,6 +65,11 @@ async function main(): Promise<void> {
 
     if (req.method === "POST" && req.url === "/chat") {
       try {
+        if (agent === null) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Agent not initialized" }));
+          return;
+        }
         const body = await readBody(req, 1024 * 1024); // 1MB limit
         let parsed: { messages?: unknown };
         try {
@@ -108,7 +125,15 @@ async function main(): Promise<void> {
 
     res.writeHead(404);
     res.end("Not found");
-  });
+  };
+}
+
+async function main(): Promise<void> {
+  const cliFlags = parseCliFlags(process.argv);
+  const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
+  const { agent, mcpManager } = await createAgent(config);
+
+  const server = createServer(createRequestHandler(agent));
 
   server.listen(config.port, () => {
     console.log(`Sound Recreation Agent listening on http://localhost:${config.port}`);
@@ -140,4 +165,9 @@ function readBody(req: import("node:http").IncomingMessage, maxBytes = 1024 * 10
   });
 }
 
-main().catch(console.error);
+// Only run the server when executed directly. Importing for unit
+// tests (e.g. createRequestHandler) must not spawn a listener.
+import { fileURLToPath } from "node:url";
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch(console.error);
+}

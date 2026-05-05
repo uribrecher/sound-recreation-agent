@@ -32,10 +32,10 @@ export class AgentClient {
       parts: [{ type: "text", text }],
     };
     this.#messages.push(userMessage);
-    return this.#streamResponse(opts.signal);
+    return this.#streamResponse(userMessage, opts.signal);
   }
 
-  async *#streamResponse(signal?: AbortSignal): AsyncIterable<ChatEvent> {
+  async *#streamResponse(userMessage: UIMessage, signal?: AbortSignal): AsyncIterable<ChatEvent> {
     let committed = false;
     try {
       signal?.throwIfAborted();
@@ -127,7 +127,13 @@ export class AgentClient {
     } finally {
       if (!committed) {
         // Roll back the user message that was pushed at send() entry.
-        this.#messages.pop();
+        // Splice by reference rather than `pop()`: if two send() calls
+        // overlap (or the consumer pushes other messages mid-flight),
+        // `pop()` could remove the wrong entry. Identifying our own
+        // message by reference makes the rollback safe regardless of
+        // history mutations from other turns.
+        const idx = this.#messages.indexOf(userMessage);
+        if (idx >= 0) this.#messages.splice(idx, 1);
       }
     }
   }
