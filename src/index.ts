@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
 import { createAgent } from "./agent.js";
@@ -42,9 +43,16 @@ type AgentArg = Awaited<ReturnType<typeof createAgent>>["agent"];
  * (the integration suite mounts its own minimal handler and only runs
  * under `npm run test:integration`, so a regression in this file's
  * routing wouldn't be caught by the default `npm test` / `test:ci`).
+ *
+ * `instanceId` defaults to a fresh UUID — fine for unit tests, and
+ * `main()` reuses that default so the value is generated once per
+ * process and stays stable for the server's lifetime. Clients use
+ * the change in `instanceId` between probes to detect a restart
+ * (the agent is intentionally stateless otherwise — no real session).
  */
 export function createRequestHandler(
   agent: AgentArg | null,
+  instanceId: string = randomUUID(),
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -59,7 +67,7 @@ export function createRequestHandler(
 
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
+      res.end(JSON.stringify({ ok: true, instanceId }));
       return;
     }
 
