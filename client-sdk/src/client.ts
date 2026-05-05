@@ -32,10 +32,10 @@ export class AgentClient {
       parts: [{ type: "text", text }],
     };
     this.#messages.push(userMessage);
-    return this.#streamResponse(opts.signal);
+    return this.#streamResponse(userMessage, opts.signal);
   }
 
-  async *#streamResponse(signal?: AbortSignal): AsyncIterable<ChatEvent> {
+  async *#streamResponse(userMessage: UIMessage, signal?: AbortSignal): AsyncIterable<ChatEvent> {
     let committed = false;
     try {
       signal?.throwIfAborted();
@@ -54,6 +54,7 @@ export class AgentClient {
       if (!body) throw new Error("No response body");
 
       let assistantText = "";
+      let streamErrored = false;
       // Wire format keys tool calls by `toolCallId`. The `tool-output-available`
       // event carries no `toolName`, so we track id → name from `tool-input-start`
       // and synthesize `toolName` on the output event for consumer convenience.
@@ -89,7 +90,30 @@ export class AgentClient {
             yield { type: "tool-output-available", toolName, output: r.output };
             break;
           }
+          case "error": {
+            // Vercel AI SDK emits `{type:"error", errorText}` into the SSE
+            // stream when the underlying LLM call (or a merged sub-stream)
+            // throws — typical causes: gateway 402/insufficient funds,
+            // model 5xx, tool throwing inside the agent loop. The HTTP
+            // response was 200 + headers already sent, so the agent
+            // server's outer try/catch can't surface this — only the
+            // SSE error chunk does. Mark the turn as failed so we
+            // skip the auto-commit and never yield `done`.
+            const message = typeof r.errorText === "string" && r.errorText.length > 0
+              ? r.errorText
+              : "stream error";
+            streamErrored = true;
+            yield { type: "error", message };
+            break;
+          }
         }
+      }
+
+      if (streamErrored) {
+        // Leave `committed` false — the finally block rolls back the
+        // user message we pushed in send(). The next retry will re-push
+        // and this turn never lands in client.messages history.
+        return;
       }
 
       const assistantMessage: UIMessage = {
@@ -103,7 +127,13 @@ export class AgentClient {
     } finally {
       if (!committed) {
         // Roll back the user message that was pushed at send() entry.
-        this.#messages.pop();
+        // Splice by reference rather than `pop()`: if two send() calls
+        // overlap (or the consumer pushes other messages mid-flight),
+        // `pop()` could remove the wrong entry. Identifying our own
+        // message by reference makes the rollback safe regardless of
+        // history mutations from other turns.
+        const idx = this.#messages.indexOf(userMessage);
+        if (idx >= 0) this.#messages.splice(idx, 1);
       }
     }
   }

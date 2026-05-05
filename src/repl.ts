@@ -45,6 +45,13 @@ async function chat(client: AgentClient, text: string): Promise<void> {
           renderSources(event.output);
         }
         break;
+      case "error":
+        // Mid-stream failure surfaced by the agent (LLM gateway 402,
+        // model 5xx, tool exception). The iterator ends cleanly after
+        // this event — without a render here the failure would be
+        // silent at the prompt.
+        process.stdout.write(`\n\x1b[31m[error] ${event.message}\x1b[0m\n`);
+        break;
       case "done":
         // assistant message already committed by the SDK
         break;

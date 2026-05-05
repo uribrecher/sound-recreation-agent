@@ -122,6 +122,11 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
     ctx = await createAgent(config);
 
     server = createServer(async (req, res) => {
+      if (req.method === "GET" && req.url === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
       if (req.method === "POST" && req.url === "/chat") {
         try {
           const body = await readBody(req);
@@ -168,6 +173,15 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
+  });
+
+  // --- Health probe ---
+
+  it("GET /health returns 200 with ok:true (no agent work)", async () => {
+    const response = await fetch(`http://localhost:${port}/health`);
+    assert.strictEqual(response.status, 200);
+    const body = await response.json();
+    assert.deepStrictEqual(body, { ok: true });
   });
 
   // --- Basic SSE format ---
