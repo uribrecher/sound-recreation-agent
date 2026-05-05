@@ -121,10 +121,11 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
     });
     ctx = await createAgent(config);
 
+    const instanceId = randomUUID();
     server = createServer(async (req, res) => {
       if (req.method === "GET" && req.url === "/health") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, instanceId }));
         return;
       }
       if (req.method === "POST" && req.url === "/chat") {
@@ -177,11 +178,15 @@ describe("Agent HTTP integration tests", { timeout: 120_000 }, () => {
 
   // --- Health probe ---
 
-  it("GET /health returns 200 with ok:true (no agent work)", async () => {
+  it("GET /health returns 200 with ok:true and a UUID instanceId (no agent work)", async () => {
     const response = await fetch(`http://localhost:${port}/health`);
     assert.strictEqual(response.status, 200);
     const body = await response.json();
-    assert.deepStrictEqual(body, { ok: true });
+    assert.strictEqual(body.ok, true);
+    assert.match(
+      body.instanceId,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   // --- Basic SSE format ---

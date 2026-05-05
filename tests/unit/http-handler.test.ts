@@ -28,11 +28,63 @@ describe("HTTP handler (createRequestHandler)", () => {
     });
   });
 
-  it("GET /health returns 200 with { ok: true }", async () => {
+  it("GET /health returns 200 with ok:true and a UUID instanceId", async () => {
     const res = await fetch(`${baseUrl}/health`);
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.headers.get("content-type"), "application/json");
-    assert.deepStrictEqual(await res.json(), { ok: true });
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+    assert.match(
+      body.instanceId,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      `instanceId should be a UUID, got: "${body.instanceId}"`,
+    );
+  });
+
+  it("instanceId is stable across probes within one process lifetime", async () => {
+    // The whole point of instanceId is that clients can detect a
+    // restart by observing it CHANGE — which means it must NOT change
+    // between requests against the same handler.
+    const a = await (await fetch(`${baseUrl}/health`)).json();
+    const b = await (await fetch(`${baseUrl}/health`)).json();
+    assert.strictEqual(a.instanceId, b.instanceId);
+  });
+
+  it("two handler instances produce different instanceIds", async () => {
+    // Stand up a second handler on a separate port; their default
+    // UUIDs must differ so a real restart shows up as a change.
+    const otherServer = createServer(createRequestHandler(null));
+    await new Promise<void>((resolve) => otherServer.listen(0, resolve));
+    try {
+      const otherAddr = otherServer.address();
+      const otherPort = typeof otherAddr === "object" && otherAddr ? otherAddr.port : 0;
+      const a = await (await fetch(`${baseUrl}/health`)).json();
+      const b = await (await fetch(`http://localhost:${otherPort}/health`)).json();
+      assert.notStrictEqual(a.instanceId, b.instanceId);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        otherServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+
+  it("explicit instanceId override is reflected in /health response", async () => {
+    // The factory accepts an instanceId argument so tests (and any
+    // future deterministic-startup needs) don't have to scrape a
+    // generated UUID out of a probe response.
+    const fixed = "00000000-0000-4000-8000-000000000001";
+    const fixedServer = createServer(createRequestHandler(null, fixed));
+    await new Promise<void>((resolve) => fixedServer.listen(0, resolve));
+    try {
+      const fixedAddr = fixedServer.address();
+      const fixedPort = typeof fixedAddr === "object" && fixedAddr ? fixedAddr.port : 0;
+      const body = await (await fetch(`http://localhost:${fixedPort}/health`)).json();
+      assert.strictEqual(body.instanceId, fixed);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        fixedServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
   });
 
   it("CORS preflight advertises GET, POST, OPTIONS", async () => {
