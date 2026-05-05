@@ -141,6 +141,44 @@ describe("AgentClient", () => {
     assert.strictEqual((outputs[1] as { toolName: string }).toolName, "web_search");
   });
 
+  it("yields an `error` event and rolls back the turn on a mid-stream error chunk", async () => {
+    // Real wire format from the AI SDK when the upstream LLM call dies
+    // mid-stream (gateway 402 / model 5xx / tool exception). Headers
+    // are already sent (HTTP 200), so the agent server can't write a
+    // JSON error envelope — only this in-band SSE chunk surfaces the
+    // failure. The SDK must NOT auto-yield `done` after an error, and
+    // must NOT commit the assistant message to history.
+    nextResponse = () => sseResponse([
+      `data: {"type":"text-delta","delta":"partial "}\n`,
+      `data: {"type":"error","errorText":"Insufficient funds. Top up at https://vercel.com/..."}\n`,
+    ]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const events = await collect(client, "hi");
+
+    const types = events.map((e) => e.type);
+    assert.deepStrictEqual(types, ["text-delta", "error"]);
+    assert.ok(!types.includes("done"), "must not yield `done` after an error");
+
+    const errEvent = events.find((e) => e.type === "error");
+    assert.ok(errEvent && errEvent.type === "error");
+    assert.match(errEvent.message, /Insufficient funds/);
+
+    // User message rolled back — partial text never lands in history.
+    assert.strictEqual(client.messages.length, 0);
+  });
+
+  it("falls back to a generic message when the error chunk has no errorText", async () => {
+    nextResponse = () => sseResponse([
+      `data: {"type":"error"}\n`,
+    ]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const events = await collect(client, "hi");
+    const errEvent = events.find((e) => e.type === "error");
+    assert.ok(errEvent && errEvent.type === "error");
+    assert.strictEqual(errEvent.message, "stream error");
+    assert.strictEqual(client.messages.length, 0);
+  });
+
   it("rolls back the user message when fetch returns non-2xx", async () => {
     nextResponse = () => new Response("nope", { status: 500 });
     const client = new AgentClient({ serverUrl: "http://x" });

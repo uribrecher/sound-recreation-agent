@@ -45,6 +45,12 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (req.method === "GET" && req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/chat") {
       try {
         const body = await readBody(req, 1024 * 1024); // 1MB limit
