@@ -141,6 +141,100 @@ describe("AgentClient", () => {
     assert.strictEqual((outputs[1] as { toolName: string }).toolName, "web_search");
   });
 
+  it("yields an `error` event and rolls back the turn on a mid-stream error chunk", async () => {
+    // Real wire format from the AI SDK when the upstream LLM call dies
+    // mid-stream (gateway 402 / model 5xx / tool exception). Headers
+    // are already sent (HTTP 200), so the agent server can't write a
+    // JSON error envelope — only this in-band SSE chunk surfaces the
+    // failure. The SDK must NOT auto-yield `done` after an error, and
+    // must NOT commit the assistant message to history.
+    nextResponse = () => sseResponse([
+      `data: {"type":"text-delta","delta":"partial "}\n`,
+      `data: {"type":"error","errorText":"Insufficient funds. Top up at https://vercel.com/..."}\n`,
+    ]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const events = await collect(client, "hi");
+
+    const types = events.map((e) => e.type);
+    assert.deepStrictEqual(types, ["text-delta", "error"]);
+    assert.ok(!types.includes("done"), "must not yield `done` after an error");
+
+    const errEvent = events.find((e) => e.type === "error");
+    assert.ok(errEvent && errEvent.type === "error");
+    assert.match(errEvent.message, /Insufficient funds/);
+
+    // User message rolled back — partial text never lands in history.
+    assert.strictEqual(client.messages.length, 0);
+  });
+
+  it("falls back to a generic message when the error chunk has no errorText", async () => {
+    nextResponse = () => sseResponse([
+      `data: {"type":"error"}\n`,
+    ]);
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const events = await collect(client, "hi");
+    const errEvent = events.find((e) => e.type === "error");
+    assert.ok(errEvent && errEvent.type === "error");
+    assert.strictEqual(errEvent.message, "stream error");
+    assert.strictEqual(client.messages.length, 0);
+  });
+
+  it("rolls back the failing turn's own message when sends overlap", async () => {
+    // Regression: previously the finally block did a bare `pop()`,
+    // which would remove whichever message was currently last —
+    // potentially another turn's user message if two sends overlapped.
+    // Rollback must remove the failing turn's own userMessage by
+    // reference, regardless of array position.
+    //
+    // Layout: turn A is in flight with a pending stream. Turn B starts
+    // and runs to completion (commits user+assistant). Then A errors.
+    // A's rollback must remove ONLY A's user — leaving B intact.
+    let resolveA: ((res: Response) => void) | null = null;
+    const aResponse = new Promise<Response>((r) => { resolveA = r; });
+    let firstCall = true;
+    nextResponse = () => {
+      if (firstCall) {
+        firstCall = false;
+        // A: stream pipes from the manually-resolved response.
+        return new Response(new ReadableStream({
+          start(controller) {
+            void aResponse.then((r) => {
+              const reader = r.body!.getReader();
+              const pump = (): Promise<void> => reader.read().then(({ done, value }) => {
+                if (done) { controller.close(); return; }
+                controller.enqueue(value);
+                return pump();
+              });
+              void pump();
+            });
+          },
+        }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      }
+      // B: completes immediately.
+      return sseResponse([`data: {"type":"text-delta","delta":"B-reply"}\n`]);
+    };
+
+    const client = new AgentClient({ serverUrl: "http://x" });
+    const aPromise = collect(client, "A"); // start, don't await
+
+    // While A is suspended, B runs to completion.
+    await collect(client, "B");
+
+    // After B: A-user + B-user + B-assistant = 3 entries.
+    assert.strictEqual(client.messages.length, 3);
+
+    // Now finish A with an error.
+    resolveA!(sseResponse([`data: {"type":"error","errorText":"oops"}\n`]));
+    await aPromise;
+
+    // A's rollback must remove A's user (idx 0) — NOT B's assistant
+    // (idx 2, the actual current `pop()` target). Final: B-user, B-asst.
+    assert.strictEqual(client.messages.length, 2);
+    assert.strictEqual(client.messages[0]?.role, "user");
+    assert.strictEqual(client.messages[0]?.parts[0]?.text, "B");
+    assert.strictEqual(client.messages[1]?.role, "assistant");
+  });
+
   it("rolls back the user message when fetch returns non-2xx", async () => {
     nextResponse = () => new Response("nope", { status: 500 });
     const client = new AgentClient({ serverUrl: "http://x" });
