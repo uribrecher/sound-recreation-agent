@@ -192,5 +192,11 @@ function readBody(req: import("node:http").IncomingMessage, maxBytes = 1024 * 10
 // tests (e.g. createRequestHandler) must not spawn a listener.
 import { fileURLToPath } from "node:url";
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch(console.error);
+  main().catch((err) => {
+    // Top-level catch handler must exit non-zero. Without this, an
+    // unexpected startup error logs and Node still exits 0 once the
+    // event loop drains, masking the failure from supervisors / CI.
+    console.error(err);
+    process.exit(1);
+  });
 }

@@ -20,10 +20,15 @@ function defaultSocketPath(): string {
   return process.env.MCB_SOCKET ?? join(homedir(), ".mcb", "sock");
 }
 
+const REQUEST_TIMEOUT_MS = 2000;
+
 /**
  * Claim a session from MCB. Throws `McbUnreachableError` if the broker
- * isn't listening or returns an unexpected response. Caller is expected
- * to surface the failure at server boot rather than degrade silently.
+ * isn't listening, stalls past `REQUEST_TIMEOUT_MS`, or returns an
+ * unexpected response. Caller is expected to surface the failure at
+ * server boot rather than degrade silently — the timeout in particular
+ * is the difference between "fail fast" and a hung startup when MCB
+ * accepted the connection but never responded.
  */
 export async function claimMcbSession(
   pid: number = process.pid,
@@ -56,6 +61,12 @@ export async function claimMcbSession(
         });
       },
     );
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy();
+      reject(new McbUnreachableError(
+        `MCB at ${socketPath} did not respond to POST /v1/sessions within ${REQUEST_TIMEOUT_MS}ms`,
+      ));
+    });
     req.on("error", (err) => reject(new McbUnreachableError(
       `MCB unreachable at ${socketPath}: ${err.message}. Is MCB running? (npm run mcb in keyboards-mcp)`,
     )));

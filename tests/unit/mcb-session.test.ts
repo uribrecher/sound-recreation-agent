@@ -70,4 +70,27 @@ describe("claimMcbSession", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("throws McbUnreachableError when MCB accepts the connection but stalls", async () => {
+    // Defends the "fail fast" promise — without a request timeout, a
+    // stalled-but-accepting MCB would hang startup indefinitely.
+    const dir = mkdtempSync(join(tmpdir(), "mcb-session-test-"));
+    const sock = join(dir, "sock");
+    const server: Server = createServer((_req, _res) => {
+      // accept the connection, never respond
+    });
+    await new Promise<void>((r) => server.listen(sock, () => r()));
+    try {
+      const start = Date.now();
+      await assert.rejects(
+        claimMcbSession(1234, "test-agent", sock),
+        (err: Error) => err instanceof McbUnreachableError && /did not respond/.test(err.message),
+      );
+      // Sanity-bound — REQUEST_TIMEOUT_MS is 2s; allow generous slack.
+      assert.ok(Date.now() - start < 5000, "claimMcbSession did not honour its timeout");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
