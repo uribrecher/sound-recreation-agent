@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
 import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
 import { createAgent } from "./agent.js";
+import { claimMcbSession, McbUnreachableError } from "./mcb-session.js";
 
 interface CliFlags {
   keyboardsMcpPath?: string;
@@ -44,15 +44,13 @@ type AgentArg = Awaited<ReturnType<typeof createAgent>>["agent"];
  * under `npm run test:integration`, so a regression in this file's
  * routing wouldn't be caught by the default `npm test` / `test:ci`).
  *
- * `instanceId` defaults to a fresh UUID — fine for unit tests, and
- * `main()` reuses that default so the value is generated once per
- * process and stays stable for the server's lifetime. Clients use
- * the change in `instanceId` between probes to detect a restart
- * (the agent is intentionally stateless otherwise — no real session).
+ * `sessionId` is the MCB-issued session id claimed in `main()`. The
+ * UI uses it to identify the agent run end-to-end (the same id MCB,
+ * connection-viewer, and logs report).
  */
 export function createRequestHandler(
   agent: AgentArg | null,
-  instanceId: string = randomUUID(),
+  sessionId: string,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -67,7 +65,7 @@ export function createRequestHandler(
 
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, instanceId }));
+      res.end(JSON.stringify({ ok: true, sessionId }));
       return;
     }
 
@@ -139,9 +137,26 @@ export function createRequestHandler(
 async function main(): Promise<void> {
   const cliFlags = parseCliFlags(process.argv);
   const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
+
+  // Claim a session from MCB before doing any other startup work — the
+  // sessionId is this agent run's identity (surfaced via /health), and
+  // failing fast here is preferable to booting an agent that can't
+  // coordinate with MCB at all.
+  let sessionId: string;
+  try {
+    sessionId = await claimMcbSession();
+    console.log(`Claimed MCB session ${sessionId}`);
+  } catch (err) {
+    if (err instanceof McbUnreachableError) {
+      console.error(`Cannot start agent: ${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
   const { agent, mcpManager } = await createAgent(config);
 
-  const server = createServer(createRequestHandler(agent));
+  const server = createServer(createRequestHandler(agent, sessionId));
 
   server.listen(config.port, () => {
     console.log(`Sound Recreation Agent listening on http://localhost:${config.port}`);
@@ -177,5 +192,11 @@ function readBody(req: import("node:http").IncomingMessage, maxBytes = 1024 * 10
 // tests (e.g. createRequestHandler) must not spawn a listener.
 import { fileURLToPath } from "node:url";
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch(console.error);
+  main().catch((err) => {
+    // Top-level catch handler must exit non-zero. Without this, an
+    // unexpected startup error logs and Node still exits 0 once the
+    // event loop drains, masking the failure from supervisors / CI.
+    console.error(err);
+    process.exit(1);
+  });
 }
