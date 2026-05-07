@@ -48,6 +48,30 @@ describe("HTTP handler (createRequestHandler)", () => {
     assert.strictEqual(a.sessionId, b.sessionId);
   });
 
+  it("/health degrades to sessionId:null when the getter throws", async () => {
+    // /health's contract is "always 200". Lock in the defensive
+    // try/catch around the getter so a future regression that lets a
+    // getter exception escape can't hang the connection or produce an
+    // unhandled rejection.
+    const localServer = createServer(createRequestHandler(null, async () => {
+      throw new Error("simulated getter failure");
+    }));
+    await new Promise<void>((resolve) => localServer.listen(0, resolve));
+    try {
+      const addr = localServer.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      const res = await fetch(`http://localhost:${port}/health`);
+      assert.strictEqual(res.status, 200);
+      const body = await res.json();
+      assert.strictEqual(body.ok, true);
+      assert.strictEqual(body.sessionId, null);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        localServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+
   it("/health returns sessionId:null when the getter resolves to null", async () => {
     // Models the "keyboards-mcp not connected / no session minted yet"
     // case — the renderer falls back to "—" rather than locking up.

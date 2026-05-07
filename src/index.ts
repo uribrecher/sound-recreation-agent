@@ -68,7 +68,17 @@ export function createRequestHandler(
     }
 
     if (req.method === "GET" && req.url === "/health") {
-      const sessionId = await getSessionId();
+      // The current getter swallows its own errors and returns null,
+      // but /health's contract is "always 200" — so we don't trust the
+      // signature alone. A future getter refactor that lets exceptions
+      // escape would otherwise produce an unhandled rejection here and
+      // hang the connection. Belt-and-suspenders: degrade to null.
+      let sessionId: string | null;
+      try {
+        sessionId = await getSessionId();
+      } catch {
+        sessionId = null;
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, sessionId }));
       return;
