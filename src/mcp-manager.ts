@@ -70,6 +70,12 @@ export class McpManager {
     return this.servers.map((s) => s.id);
   }
 
+  async callTool(serverId: string, name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    const server = this.servers.find((s) => s.id === serverId);
+    if (!server) throw new Error(`MCP server "${serverId}" not connected`);
+    return await server.client.callTool({ name, arguments: args });
+  }
+
   async shutdown(): Promise<void> {
     for (const server of this.servers) {
       try {

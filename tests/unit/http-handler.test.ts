@@ -17,7 +17,7 @@ describe("HTTP handler (createRequestHandler)", () => {
   let baseUrl: string;
 
   before(async () => {
-    server = createServer(createRequestHandler(null, FIXED_SESSION_ID));
+    server = createServer(createRequestHandler(null, async () => FIXED_SESSION_ID));
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const addr = server.address();
     const port = typeof addr === "object" && addr ? addr.port : 0;
@@ -39,11 +39,31 @@ describe("HTTP handler (createRequestHandler)", () => {
     assert.strictEqual(body.sessionId, FIXED_SESSION_ID);
   });
 
-  it("sessionId is stable across probes within one process lifetime", async () => {
-    // Same handler instance, two probes — sessionId must not drift.
+  it("/health returns whatever the session-id getter resolves to on each probe", async () => {
+    // The handler now consults the getter on every probe (so MCB
+    // restarts are visible to clients). When the getter is stable,
+    // probes are stable; when the getter changes, probes change.
     const a = await (await fetch(`${baseUrl}/health`)).json();
     const b = await (await fetch(`${baseUrl}/health`)).json();
     assert.strictEqual(a.sessionId, b.sessionId);
+  });
+
+  it("/health returns sessionId:null when the getter resolves to null", async () => {
+    // Models the "keyboards-mcp not connected / no session minted yet"
+    // case — the renderer falls back to "—" rather than locking up.
+    const localServer = createServer(createRequestHandler(null, async () => null));
+    await new Promise<void>((resolve) => localServer.listen(0, resolve));
+    try {
+      const addr = localServer.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      const body = await (await fetch(`http://localhost:${port}/health`)).json();
+      assert.strictEqual(body.ok, true);
+      assert.strictEqual(body.sessionId, null);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        localServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
   });
 
   it("/health does not echo any legacy instanceId field", async () => {
