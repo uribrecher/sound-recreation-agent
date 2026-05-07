@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createAgentUIStreamResponse } from "ai";
 import { resolveConfig } from "./config.js";
 import { createAgent } from "./agent.js";
-import { claimMcbSession, McbUnreachableError } from "./mcb-session.js";
+import type { McpManager } from "./mcp-manager.js";
 
 interface CliFlags {
   keyboardsMcpPath?: string;
@@ -44,13 +44,17 @@ type AgentArg = Awaited<ReturnType<typeof createAgent>>["agent"];
  * under `npm run test:integration`, so a regression in this file's
  * routing wouldn't be caught by the default `npm test` / `test:ci`).
  *
- * `sessionId` is the MCB-issued session id claimed in `main()`. The
- * UI uses it to identify the agent run end-to-end (the same id MCB,
- * connection-viewer, and logs report).
+ * `getSessionId` resolves the keyboards-mcp's current MCB session id
+ * on each /health probe. Live lookup (rather than caching at startup)
+ * is what lets the mock-runner shell observe an MCB restart: when MCB
+ * recycles, keyboards-mcp drops its cached session and re-mints on
+ * the next lease claim, and the next probe reflects the new id.
+ * Returns null when no MCP is connected, the call fails, or the MCP
+ * hasn't minted a session yet (lazy — first connect_to_keyboard).
  */
 export function createRequestHandler(
   agent: AgentArg | null,
-  sessionId: string,
+  getSessionId: () => Promise<string | null>,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -64,6 +68,17 @@ export function createRequestHandler(
     }
 
     if (req.method === "GET" && req.url === "/health") {
+      // The current getter swallows its own errors and returns null,
+      // but /health's contract is "always 200" — so we don't trust the
+      // signature alone. A future getter refactor that lets exceptions
+      // escape would otherwise produce an unhandled rejection here and
+      // hang the connection. Belt-and-suspenders: degrade to null.
+      let sessionId: string | null;
+      try {
+        sessionId = await getSessionId();
+      } catch {
+        sessionId = null;
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, sessionId }));
       return;
@@ -138,25 +153,9 @@ async function main(): Promise<void> {
   const cliFlags = parseCliFlags(process.argv);
   const config = resolveConfig({ cliFlags, env: process.env as Record<string, string> });
 
-  // Claim a session from MCB before doing any other startup work — the
-  // sessionId is this agent run's identity (surfaced via /health), and
-  // failing fast here is preferable to booting an agent that can't
-  // coordinate with MCB at all.
-  let sessionId: string;
-  try {
-    sessionId = await claimMcbSession();
-    console.log(`Claimed MCB session ${sessionId}`);
-  } catch (err) {
-    if (err instanceof McbUnreachableError) {
-      console.error(`Cannot start agent: ${err.message}`);
-      process.exit(1);
-    }
-    throw err;
-  }
-
   const { agent, mcpManager } = await createAgent(config);
 
-  const server = createServer(createRequestHandler(agent, sessionId));
+  const server = createServer(createRequestHandler(agent, () => fetchKeyboardsMcpSessionId(mcpManager)));
 
   server.listen(config.port, () => {
     console.log(`Sound Recreation Agent listening on http://localhost:${config.port}`);
@@ -168,6 +167,26 @@ async function main(): Promise<void> {
     server.close();
     process.exit(0);
   });
+}
+
+/**
+ * Pull the current MCB session id out of keyboards-mcp by invoking its
+ * `get_health` tool. The MCP's session is the meaningful one — it owns
+ * device leases on MCB, drops on session-not-found, and re-mints on the
+ * next claim. Anything that goes wrong (MCP not configured, transport
+ * error, unexpected payload shape) collapses to null so /health stays
+ * a 200 — the mock-runner shell renders null as "—".
+ */
+async function fetchKeyboardsMcpSessionId(mcpManager: McpManager): Promise<string | null> {
+  if (!mcpManager.getConnectedServerIds().includes("keyboards-mcp")) return null;
+  try {
+    const result = await mcpManager.callTool("keyboards-mcp", "get_health");
+    const structured = (result as { structuredContent?: { sessionId?: unknown } }).structuredContent;
+    const sessionId = structured?.sessionId;
+    return typeof sessionId === "string" ? sessionId : null;
+  } catch {
+    return null;
+  }
 }
 
 function readBody(req: import("node:http").IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
