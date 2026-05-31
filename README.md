@@ -38,7 +38,11 @@ REPL (HTTP client) --> POST /chat --> HTTP Server --> ToolLoopAgent --> AI Gatew
 # Install dependencies
 npm install
 
-# Start the server (fetches API key from 1Password)
+# Provide secrets first: copy .env.example and fill in, export the vars
+# yourself, or use the 1Password helper:
+#   cp scripts/dev.local.sh.example scripts/dev.local.sh   # then edit op:// refs
+
+# Start the server (reads AI_GATEWAY_API_KEY / TAVILY_API_KEY from the environment)
 npm run dev
 
 # Or start with both MCP servers
@@ -54,7 +58,7 @@ npm run repl
 |--------|-------------|
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm run start` | Start compiled server |
-| `npm run dev` | Start server via tsx (auto-fetches API key) |
+| `npm run dev` | Start server via tsx (reads API keys from env) |
 | `npm run dev:full` | Start with keyboards-mcp + audio-analysis-mcp |
 | `npm run repl` | Connect REPL client to running server |
 | `npm run lint` | ESLint |
@@ -97,3 +101,7 @@ Part of the [sounds-and-recreation](https://github.com/uribrecher) workspace:
 - [`keyboards-mcp`](../keyboards-mcp/) -- MCP server controlling MIDI keyboards
 - [`audio-analysis-mcp`](../audio-analysis-mcp/) -- Audio analysis MCP server (Python)
 - [`macos-packager`](../macos-packager/) -- macOS .app/.dmg packaging
+
+## License
+
+Licensed under the GNU General Public License v3.0 (GPL-3.0-or-later). See [LICENSE](LICENSE).

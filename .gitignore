@@ -4,3 +4,6 @@ dist-test/
 .env
 .DS_Store
 .idea/
+
+# Local 1Password dev launcher (copy of scripts/dev.local.sh.example)
+scripts/dev.local.sh

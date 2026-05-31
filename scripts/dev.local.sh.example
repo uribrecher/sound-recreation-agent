@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Local dev launcher that loads secrets from 1Password into env vars, then
+# starts the agent. This is a TEMPLATE — copy it to `scripts/dev.local.sh`
+# (which is gitignored) and edit the op:// references to match your vault:
+#
+#   cp scripts/dev.local.sh.example scripts/dev.local.sh
+#   chmod +x scripts/dev.local.sh
+#   ./scripts/dev.local.sh           # runs `npm run dev`
+#   ./scripts/dev.local.sh dev:full  # runs `npm run dev:full`
+#
+# Requires the 1Password CLI (`op`). Secrets are read into the process
+# environment only — they are never written to disk.
+#
+# If you don't use 1Password, you can instead export the vars yourself, or use
+# `.env` + your own loader. The app reads AI_GATEWAY_API_KEY and TAVILY_API_KEY
+# from process.env.
+set -euo pipefail
+
+export AI_GATEWAY_API_KEY="$(op read 'op://<vault>/<ai-gateway-item>/credential')"
+export TAVILY_API_KEY="$(op read 'op://<vault>/<tavily-item>/credential')"
+
+exec npm run "${1:-dev}"
