@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sound-recreation-agent — Sounds &amp; Recreation</title>
+<meta name="description" content="The AI agent that reverse-engineers a song's keyboard sound and applies it to your synth over MIDI.">
+<meta property="og:title" content="sound-recreation-agent — Sounds &amp; Recreation">
+<meta property="og:description" content="AI agent that reverse-engineers song keyboard sounds onto your synth.">
+<meta property="og:image" content="https://uribrecher.github.io/sounds-and-recreation/assets/img/hero.png">
+<link rel="icon" href="site-assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="site-assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="site-assets/favicon-16.png">
+<link rel="apple-touch-icon" href="site-assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="site-assets/brand.css">
+<style>:root{--accent:#56a8ef}</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="brand" href="https://uribrecher.github.io/sounds-and-recreation/"><img src="site-assets/mark.webp" alt="Sounds & Recreation logo"> Sounds &amp; Recreation</a>
+  <div class="nav-links">
+    <a href="https://uribrecher.github.io/sounds-and-recreation/#repos">All repos</a>
+    <a class="ghbtn" href="https://github.com/uribrecher/sound-recreation-agent">★ GitHub</a>
+  </div>
+</nav>
+
+<header class="repo-hero wrap">
+  <span class="lang">TypeScript / Node</span>
+  <h1>sound-recreation-agent</h1>
+  <p class="lead">The orchestrating AI agent — it listens to a song, identifies the sound engine, predicts synth parameters, and sets them on your keyboard over MIDI.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/uribrecher/sound-recreation-agent">★ View on GitHub</a>
+    <a class="btn ghost" href="https://github.com/uribrecher/sound-recreation-agent#readme">Read the docs</a>
+  </div>
+</header>
+
+<section class="section">
+  <div class="wrap">
+    <div class="label">What it does</div>
+    <h2>The brain of the pipeline</h2>
+    <p class="sub">Built on the Vercel AI SDK <code>ToolLoopAgent</code> and MCP, it drives keyboards-mcp and audio-analysis-mcp over stdio: fetch audio, separate stems, isolate the keyboard part, identify the engine, predict parameters, and apply them. The HTTP server is stateless — conversation history lives in the client.</p>
+    <div class="feat">
+      <div class="item"><strong>Orchestrates two MCP servers</strong><br>keyboards-mcp (Node) + audio-analysis-mcp (Python) over stdio</div>
+      <div class="item"><strong>Agentic loop</strong><br>Vercel AI SDK <code>ToolLoopAgent</code> → AI Gateway → LLM</div>
+      <div class="item"><strong>Streaming HTTP API</strong><br>Stateless server; <code>POST /chat</code> with SSE streaming</div>
+      <div class="item"><strong>REPL + CLI flags</strong><br><code>--keyboards-mcp</code>, <code>--audio-mcp</code>, <code>--port</code></div>
+      <div class="item"><strong>Env-based secrets</strong><br><code>AI_GATEWAY_API_KEY</code> (+ optional <code>TAVILY_API_KEY</code>)</div>
+      <div class="item"><strong>Zero-dep tests</strong><br><code>node:test</code> unit + integration suites</div>
+    </div>
+  </div>
+</section>
+
+<section class="section alt">
+  <div class="wrap">
+    <div class="label">Quickstart</div>
+    <h2>Up and running</h2>
+    <div class="code"><pre><span class="c"># install</span>
+npm install
+
+<span class="c"># provide secrets (1Password helper, or export env yourself)</span>
+cp scripts/dev.local.sh.example scripts/dev.local.sh
+
+<span class="c"># start the agent + both MCP servers</span>
+npm run dev:full
+
+<span class="c"># in another terminal: connect the REPL</span>
+npm run repl</pre></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="label">In the pipeline</div>
+    <h2>Where it fits</h2>
+    <div class="flow">
+      <span class="node">Audio</span>→<span class="node">Analysis</span>→<span class="node on">Agent</span>→<span class="node">MIDI</span>→<span class="node">Synth</span>
+    </div>
+    <p class="sub" style="margin-top:16px">sound-recreation-agent is the orchestrator — the loop that turns analysis into MIDI.</p>
+    <div class="linkrow">
+      <a href="https://github.com/uribrecher/sound-recreation-agent">GitHub</a>
+      <a href="https://github.com/uribrecher/sound-recreation-agent/issues">Issues</a>
+      <a href="https://uribrecher.github.io/sounds-and-recreation/">← The collection</a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="brand"><img src="site-assets/mark.webp" alt=""> <span>Sounds &amp; Recreation</span></div>
+    Open-source audio recreation · GPL-3.0 · <a href="https://github.com/uribrecher">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>
