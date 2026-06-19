@@ -1,6 +1,7 @@
 # sound-recreation-agent
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![CI](https://github.com/uribrecher/sound-recreation-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/uribrecher/sound-recreation-agent/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/uribrecher/sound-recreation-agent?style=flat&logo=github)](https://github.com/uribrecher/sound-recreation-agent/stargazers)
 
 AI agent that reverse-engineers keyboard sounds from songs and applies them to hardware synthesizers via MIDI. Powered by Vercel AI SDK's `ToolLoopAgent` and the Model Context Protocol (MCP).
